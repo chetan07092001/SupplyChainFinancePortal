@@ -1,0 +1,30 @@
+.captchaBox {
+  display: flex;
+  align-items: center;
+  margin: 10px 0;
+  border: 1px dashed #ccc;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.captchaText {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 24px;
+  letter-spacing: 5px;
+  color: #000;
+}
+
+.refreshText {
+  margin-left: 10px;
+  color: #007bff;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.refreshText:hover {
+  color: #0056b3;
+}
+
+.captchaInput {
+  margin-top: 10px;
+}
