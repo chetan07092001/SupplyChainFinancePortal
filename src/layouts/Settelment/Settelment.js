@@ -32,7 +32,6 @@ import "animate.css";
 import * as XLSX from "xlsx/xlsx.mjs";
 import { saveAs } from "file-saver";
 import { excelData } from "./data.js";
-import Icon from "@mui/material";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 function Settelment() {
   const { columns, rows } = StockAuditData();
