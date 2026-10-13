@@ -74,7 +74,7 @@ export default function DataTable() {
         align: "left",
       },
       { Header: "Transaction Date", accessor: "transdate", align: "left" },
-      { Header: "Vendor Name", accessor: "vendorname", width: "15%", align: "left" }, // Match the API response
+      { Header: "Spoke Name", accessor: "vendorname", width: "15%", align: "left" }, // Match the API response
       { Header: "Anchor Name", accessor: "anchorname", width: "15%", align: "left" }, // Match the API response
       { Header: "View", accessor: "view", align: "center" },
     ],

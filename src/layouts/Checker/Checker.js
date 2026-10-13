@@ -51,7 +51,6 @@ function ApprovalReq() {
                 <MDBox pt={1}>
                   <DataTable
                     table={{ columns, rows }}
-                    isSorted={false}
                     entriesPerPage={false}
                     showTotalEntries={true}
                     noEndBorder

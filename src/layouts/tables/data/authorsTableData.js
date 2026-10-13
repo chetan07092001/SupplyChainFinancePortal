@@ -45,11 +45,11 @@ const generateSampleData = (count) => {
   return sampleData;
 };
 
-const colorObject = {
-  Disbursed: "success",
-  Approval: "warning",
-  Rejected: "error",
-};
+// const colorObject = {
+//   Disbursed: "error",
+//   PartiallyDisbursed: "warning",
+//   Rejected: "error",
+// };
 
 const transformData = (data) => {
   return data.map((item) =>

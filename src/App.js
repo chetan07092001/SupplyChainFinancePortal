@@ -113,10 +113,9 @@ export default function App() {
 
   const getRoutes = (allRoutes) =>
     allRoutes.map((route) => {
-      if (route.collapse) {
-        console.log("routreee", route);
-        return getRoutes(route.collapse);
-      }
+      // support both `collapse` (template) and `children` (our routes.js)
+      if (route.collapse) return getRoutes(route.collapse);
+      if (route.children) return getRoutes(route.children);
 
       if (route.route) {
         return <Route exact path={route.route} element={route.component} key={route.key} />;

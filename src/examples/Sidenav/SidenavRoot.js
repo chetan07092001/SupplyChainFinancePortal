@@ -26,7 +26,7 @@ export default styled(Drawer)(({ theme, ownerState }) => {
   const { xxl } = boxShadows;
   const { pxToRem, linearGradient } = functions;
 
-  let backgroundValue = darkMode ? background.sidenav : "maroon";
+  let backgroundValue = darkMode ? background.sidenav : "#006341";
   if (transparentSidenav) {
     backgroundValue = transparent.main;
   } else if (whiteSidenav) {

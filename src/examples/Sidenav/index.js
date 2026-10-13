@@ -23,6 +23,7 @@ import PropTypes from "prop-types";
 
 // @mui material components
 import List from "@mui/material/List";
+import Collapse from "@mui/material/Collapse";
 import Divider from "@mui/material/Divider";
 import Link from "@mui/material/Link";
 import Icon from "@mui/material/Icon";
@@ -31,7 +32,7 @@ import Icon from "@mui/material/Icon";
 import MDBox from "components/MDBox";
 import MDTypography from "components/MDTypography";
 import MDButton from "components/MDButton";
-import NegwenLogo from "../../assets/images/NewgenLogowhite.png";
+import NegwenLogo from "../../assets/images/NewgenLogo.png";
 
 // Material Dashboard 2 React example components
 import SidenavCollapse from "examples/Sidenav/SidenavCollapse";
@@ -47,6 +48,7 @@ import {
   setTransparentSidenav,
   setWhiteSidenav,
 } from "context";
+import { experimental_extendTheme as extendTheme } from "@mui/material/styles";
 
 function Sidenav({ color, brand, brandName, routes, ...rest }) {
   const [controller, dispatch] = useMaterialUIController();
@@ -55,12 +57,24 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
   const collapseName = location.pathname.replace("/admin", "");
   const [loading, setLoading] = useState(false);
   let textColor = "white";
-  let sidenav = "#FFCFB3";
   if (transparentSidenav || (whiteSidenav && !darkMode)) {
     textColor = "dark";
   } else if (whiteSidenav && darkMode) {
     textColor = "inherit";
   }
+
+  const theme = extendTheme({
+    cssVarPrefix: "color",
+    colorSchemes: {
+      light: {
+        palette: {
+          purple: {
+            600: "#9333ea",
+          },
+        },
+      },
+    },
+  });
 
   const getData = async () => {
     try {
@@ -73,38 +87,27 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
           },
         }
       );
-      console.log("upload data New ");
-      console.log(response.data);
       return response;
     } catch (e) {
       console.log(e);
     }
   };
+
   const uploadInvoice = async () => {
     try {
       setLoading(true);
-
-      console.log("upload invoice");
       const response = await getData();
-      console.log("data");
-      console.log(response.status);
 
       setTimeout(() => {
         setLoading(false);
-        if (response.status == "200") {
+        if (response && response.status === 200) {
           const wiName = response.data.wiName;
-          console.log("winame" + wiName);
           const sID = response.data.sessionId;
-          console.log("sid" + sID);
           window.open(
             `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=1&SessionId=${sID}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
           );
         }
       }, 4000);
-
-      // if (response.status !== "200") {
-      //   navigate("/");
-      // }
     } catch (e) {
       console.log("Error is ", e);
     }
@@ -113,52 +116,96 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
   const closeSidenav = () => setMiniSidenav(dispatch, true);
 
   useEffect(() => {
-    // A function that sets the mini state of the sidenav.
     function handleMiniSidenav() {
       setMiniSidenav(dispatch, window.innerWidth < 1200);
       setTransparentSidenav(dispatch, window.innerWidth < 1200 ? false : transparentSidenav);
       setWhiteSidenav(dispatch, window.innerWidth < 1200 ? false : whiteSidenav);
     }
 
-    /** 
-     The event listener that's calling the handleMiniSidenav function when resizing the window.
-    */
     window.addEventListener("resize", handleMiniSidenav);
-
-    // Call the handleMiniSidenav function to set the state with the initial value.
     handleMiniSidenav();
-    console.log(collapseName.replace("/", ""), "hellooolollol");
-
-    // Remove event listener on cleanup
     return () => window.removeEventListener("resize", handleMiniSidenav);
-  }, [dispatch, location]);
+  }, [dispatch, transparentSidenav, whiteSidenav]);
 
-  // Render all the routes from the routes.js (All the visible items on the Sidenav)
-  const renderRoutes = routes.map(({ type, name, icon, title, noCollapse, key, href, route }) => {
+  // Render routes
+  const [expandedParents, setExpandedParents] = useState({});
+  const toggleParent = (key) => {
+    setExpandedParents((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const renderRoutes = routes.map((route) => {
+    const { type, name, icon, title, noCollapse, key, href, route: routePath, children } = route;
     let returnValue;
 
-    console.log(key, "this is key");
     if (type === "collapse") {
-      returnValue = href ? (
-        <Link
-          href={href}
-          key={key}
-          target="_blank"
-          rel="noreferrer"
-          sx={{ textDecoration: "none" }}
-        >
-          <SidenavCollapse
-            name={name}
-            icon={icon}
-            active={key === collapseName.replace("/", "")}
-            noCollapse={noCollapse}
-          />
-        </Link>
-      ) : (
-        <NavLink key={key} to={route}>
-          <SidenavCollapse name={name} icon={icon} active={key === collapseName.replace("/", "")} />
-        </NavLink>
-      );
+      if (children && Array.isArray(children) && children.length > 0) {
+        returnValue = (
+          <div key={key}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => toggleParent(key)}
+              onKeyPress={() => toggleParent(key)}
+              style={{ textDecoration: "none" }}
+            >
+              <SidenavCollapse
+                name={name}
+                icon={icon}
+                active={key === collapseName.replace("/", "")}
+                noCollapse={noCollapse}
+              />
+            </div>
+
+            <Collapse in={!!expandedParents[key]} timeout="auto" unmountOnExit>
+              <List sx={{ pl: 2 }}>
+                {children.map((child) => {
+                  // If child route belongs to EOnboarding, navigate to parent route with a hash
+                  const childRoutePath =
+                    child.route && child.route.startsWith("E-onboarding")
+                      ? `E-onboarding#${child.route.split("/").pop()}`
+                      : child.route;
+
+                  return (
+                    <NavLink key={child.key} to={childRoutePath} style={{ textDecoration: "none" }}>
+                      <SidenavCollapse
+                        nested
+                        name={child.name}
+                        icon={child.icon}
+                        active={child.key === collapseName.replace("/", "")}
+                      />
+                    </NavLink>
+                  );
+                })}
+              </List>
+            </Collapse>
+          </div>
+        );
+      } else {
+        returnValue = href ? (
+          <Link
+            href={href}
+            key={key}
+            target="_blank"
+            rel="noreferrer"
+            sx={{ textDecoration: "none" }}
+          >
+            <SidenavCollapse
+              name={name}
+              icon={icon}
+              active={key === collapseName.replace("/", "")}
+              noCollapse={noCollapse}
+            />
+          </Link>
+        ) : (
+          <NavLink key={key} to={routePath}>
+            <SidenavCollapse
+              name={name}
+              icon={icon}
+              active={key === collapseName.replace("/", "")}
+            />
+          </NavLink>
+        );
+      }
     } else if (type === "title") {
       returnValue = (
         <MDTypography
@@ -239,17 +286,18 @@ function Sidenav({ color, brand, brandName, routes, ...rest }) {
         <List>{renderRoutes}</List>
         <MDBox p={2} mt="auto">
           <MDButton
+            disableRipple
+            disableFocusRipple
             onClick={uploadInvoice}
+            fullWidth
             variant="gradient"
-            style={{ backgroundColor: "#c08552", color: "white" }}
+            style={{ backgroundColor: "#008533", color: "white" }}
             sx={{
-              backgroundColor: "lightcoral", // light red background
-              // white text color
+              backgroundColor: "lightcoral",
               "&:hover": {
-                backgroundColor: "darkred", // darker red on hover
+                backgroundColor: "darkred",
               },
             }}
-            fullWidth
           >
             Upload new Invoice
           </MDButton>

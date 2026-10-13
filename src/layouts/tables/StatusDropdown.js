@@ -32,16 +32,19 @@ function StatusDropdown({ status, handleChange }) {
       <IconButton onClick={handleOpen}>
         <MDButton
           style={{
-            backgroundColor: "maroon",
+            backgroundColor: "#008533",
             color: "white",
             height: "5px",
             width: "5px",
           }}
           sx={{
-            transition: "transform 0.3s, box-shadow 0.3s", // Smooth transition for transform and box-shadow
+            background: "#008533", // blue → purple
+            color: "white",
+            transition: "transform 0.3s, box-shadow 0.3s",
             "&:hover": {
-              transform: "scale(1.02)", // Scale up the button
-              boxShadow: "0 2px 5px maroon",
+              background: "#0d9441", // slightly darker hover gradient
+              transform: "scale(1.05)", // Scale up the button
+              boxShadow: "0 2px 5px #15f132",
             },
           }}
           iconOnly
@@ -85,6 +88,11 @@ function StatusDropdown({ status, handleChange }) {
             >
               <FormControlLabel value="All" control={<Radio />} label="All" />
               <FormControlLabel value="Disbursed" control={<Radio />} label="Disbursed" />
+              <FormControlLabel
+                value="Partially Disbursed"
+                control={<Radio />}
+                label="Partially Disbursed"
+              />
               <FormControlLabel value="REJECTED" control={<Radio />} label="Rejected" />
             </RadioGroup>
           </FormControl>

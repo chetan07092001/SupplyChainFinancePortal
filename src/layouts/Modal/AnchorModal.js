@@ -196,7 +196,7 @@ function AnchorModal({ open, onClose }) {
             table={{
               columns: [
                 {
-                  Header: "Vendor Name",
+                  Header: "Spoke Name",
                   accessor: "vendorName",
                   width: "25%",
                 },

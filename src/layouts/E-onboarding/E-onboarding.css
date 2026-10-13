@@ -1,0 +1,28 @@
+.eonboarding-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.eonboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eonboarding-tabs {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+@media (max-width: 600px) {
+  .eonboarding-root {
+    padding: 8px;
+  }
+}
+
+#app > div.MuiBox-root.css-aim41u > div > div > div > div > div > div.MuiBox-root.css-qma2ck > div > div > div > div{
+      box-shadow: none !important;
+}

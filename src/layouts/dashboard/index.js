@@ -24,16 +24,17 @@ import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 
 import ComplexStatisticsCard from "examples/Cards/StatisticsCards/ComplexStatisticsCard";
-
+import { Card } from "@mui/material";
 // Data
 
 import reportsLineChartData from "layouts/dashboard/data/reportsLineChartData";
 
 // Dashboard components
 import Projects from "layouts/dashboard/components/Projects";
-
+import WalletIcon from "@mui/icons-material/Wallet";
 import StackBarChart from "examples/Charts/BarCharts/StackBarChart";
 import PieChart from "examples/Charts/PieChart";
+import EOnboardingChart from "examples/Charts/EOnboardingChart";
 import "animate.css";
 import axios from "axios";
 import { useState, useEffect } from "react";
@@ -43,10 +44,12 @@ import { totalOutstanding } from "layouts/Modal/CustomModal";
 import * as XLSX from "xlsx/xlsx.mjs";
 import { saveAs } from "file-saver";
 import boxShadow from "assets/theme/functions/boxShadow";
-
+import { useNavigate } from "react-router-dom";
+import CustomCard from "./Card";
 let total = 0;
 let totalOutstandingAmount = totalOutstanding();
-
+let overDue = "0";
+let outStanding = "5.6M";
 const getData = async () => {
   try {
     const response = await axios.get(
@@ -67,14 +70,52 @@ const getData = async () => {
   }
 };
 
-const onClickTotal = () => {
-  const offset = 10; // Set the offset from the bottom (100px before the bottom)
-  window.scrollTo({
-    top: document.body.scrollHeight - offset, // Scroll to just before the bottom
-    behavior: "smooth", // Smooth scroll effect
-  });
+const kpiCardStyle = {
+  p: 3,
+  borderRadius: "16px",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  border: "1px solid #e5e7eb",
+  transition: "0.3s",
+  "&:hover": {
+    transform: "translateY(-3px)",
+    boxShadow: "0 20px 40px rgba(0,0,0,0.12)",
+  },
 };
 
+const getData2 = async () => {
+  try {
+    const response = await axios.get(
+      "https://scfdemo.newgensoftware.net:8443/scf/FetchCustomerExposure",
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      }
+    );
+    console.log("card data");
+    console.log(response.data);
+    return response.data ? response.data : [];
+  } catch (error) {
+    console.error(error);
+    console.log("error");
+    return [];
+  }
+};
+
+const onClickTotal = () => {
+  navigate("/admin/Settelment");
+};
+
+const amountShortner = (data) => {
+  const totalAmount = data;
+  if (totalAmount >= 1000 && totalAmount < 1000000) {
+    return (totalAmount / 1000).toFixed(1) + "k"; // For values in thousands (e.g., 1k, 300k)
+  } else if (totalAmount >= 1000000) {
+    return (totalAmount / 1000000).toFixed(1) + "M"; // For values in millions (e.g., 1M, 2.5M)
+  }
+  return totalAmount;
+};
 const getTotalDisburseAmount = (data) => {
   const totalAmount = data
     .reduce((total, item) => {
@@ -97,6 +138,16 @@ function Dashboard() {
   const [rows, setRows] = useState([]);
   const [openModal, setOpenModal] = useState(false);
   const [openModal2, setOpenModal2] = useState(false);
+  const [cardData, setCardData] = useState([]);
+  // const fetchOverDueAndOutstanding = async () => {
+  //   const data = await getData2();
+  //   console.log(data, "this is card data ");
+  //   setCardData(data);
+  // };
+  const navigate = useNavigate();
+  const onClickTotal = () => {
+    navigate("/admin/settlement");
+  };
   useEffect(() => {
     const fetchData = async () => {
       const data = await getData();
@@ -104,17 +155,25 @@ function Dashboard() {
       //   setDis(getTotalDisburseAmount(data));
       //  console.log(dis);
       total = getTotalDisburseAmount(data);
-      1;
-      console.log("ahksjdakjsad");
+
       const updatedData = data.map((obj) => ({
         ...obj,
-        disburseamount: Number(obj.disburseamount).toLocaleString("en-US"),
-        invoiceamount: Number(obj.invoiceamount).toLocaleString("en-US"),
+        disburseamount: Number(obj.disburseamount),
+        invoiceamount: Number(obj.invoiceamount),
       }));
-      console.log(updatedData);
+      console.log(updatedData, "dahboard data");
       setRows(updatedData);
     };
+    const fetchOverDueAndOutstanding = async () => {
+      const data = await getData2();
 
+      if (data !== null) {
+        console.log(data, "this is card data ");
+        // outStanding = data[0].outstanding;
+        // overDue = data[0].overdue;
+      }
+    };
+    fetchOverDueAndOutstanding();
     fetchData();
   }, []);
 
@@ -133,11 +192,11 @@ function Dashboard() {
       {/* <AnchorModal open={openModal2} onClose={() => setOpenModal2(false)} />
       <CustomModal open={openModal} onClose={() => setOpenModal(false)} /> */}
 
-      <MDBox py={3}>
-        <Grid container spacing={3}>
+      <MDBox py={1.5}>
+        <Grid container spacing={2}>
           <Grid item xs={12} md={6} lg={3}>
-            <MDBox mb={1.5}>
-              <a onClick={onClickTotal}>
+            <MDBox mb={0}>
+              {/* <a onClick={onClickTotal}>
                 <ComplexStatisticsCard
                   color="dark"
                   icon={
@@ -154,12 +213,20 @@ function Dashboard() {
                   count={rows.length}
                   bg="#2C2C2C"
                 />
-              </a>
+              </a> */}
+              <CustomCard
+                total={rows.length}
+                onClickTotal={onClickTotal}
+                cardname="Total invoice"
+                color="#4caf50"
+                graph="M0 35 Q40 25 80 30 T160 20 T200 10"
+                value={"↑ 12%"}
+              />
             </MDBox>
           </Grid>
           <Grid item xs={12} md={6} lg={3}>
-            <MDBox mb={1.5}>
-              <a onClick={onClickTotal}>
+            <MDBox mb={1}>
+              {/* <a onClick={onClickTotal}>
                 <ComplexStatisticsCard
                   color="success"
                   icon="currency_rupee"
@@ -167,24 +234,40 @@ function Dashboard() {
                   count={total}
                   bg="#2E8B57"
                 />
-              </a>
+              </a> */}
+              <CustomCard
+                total={total}
+                onClickTotal={onClickTotal}
+                cardname="Disbursed Amount"
+                color="#4caf50"
+                graph="M0 35 Q40 25 80 30 T160 20 T200 10"
+                value={"↑ 8.5%"}
+              />
             </MDBox>
           </Grid>
           <Grid item xs={12} md={6} lg={3}>
-            <MDBox mb={1.5}>
-              <a onClick={onClickTotal}>
+            <MDBox mb={1}>
+              {/* <a onClick={onClickTotal}>
                 <ComplexStatisticsCard
-                  icon="calendar_month_icon"
-                  title={<span style={{ color: "#344767" }}>Upcoming Due</span>}
-                  count="0"
+                  icon="wallet"
+                  title={<span style={{ color: "#344767" }}>Outstanding Amount</span>}
+                  count={amountShortner(outStanding)}
                   bg="#006D6F"
                 />
-              </a>
+              </a> */}
+              <CustomCard
+                total={outStanding}
+                onClickTotal={onClickTotal}
+                cardname="Outstanding Amount"
+                color="#ec1818"
+                graph="M0 10 Q50 18 90 25 T160 35 T200 45"
+                value={"↓ 2.4%"}
+              />
             </MDBox>
           </Grid>
           <Grid item xs={12} md={6} lg={3}>
-            <MDBox mb={1.5}>
-              <a onClick={onClickOverdue}>
+            <MDBox mb={1}>
+              {/* <a onClick={onClickTotal}>
                 <ComplexStatisticsCard
                   icon="timer_off"
                   style={{
@@ -196,29 +279,39 @@ function Dashboard() {
                       <a>Overdue Amount</a>
                     </span>
                   }
-                  count={totalOutstandingAmount}
+                  count={amountShortner(overDue)}
                   bg="#803D3B"
                 />
-              </a>
+              </a> */}
+              <CustomCard
+                total={overDue}
+                onClickTotal={onClickTotal}
+                cardname="Overdue Amount"
+                color="#4caf50"
+                graph="M0 0 Q40 0 0 0 T160 0T200 0"
+              />
             </MDBox>
           </Grid>
         </Grid>
-        <MDBox mt={4.5}>
-          <Grid container spacing={3}>
+        <MDBox mt={2}>
+          <Grid container spacing={2}>
             <Grid item xs={12} md={6} lg={6} alignItems="center">
-              <MDBox mb={3}>
+              <MDBox mb={1.5}>
                 <StackBarChart color="info" />
               </MDBox>
             </Grid>
             <Grid item xs={12} md={6} lg={6}>
-              <MDBox mb={3}>
+              <MDBox mb={1}>
                 <PieChart color="dark" />
+              </MDBox>
+              <MDBox mb={1}>
+                <EOnboardingChart />
               </MDBox>
             </Grid>
           </Grid>
         </MDBox>
         <MDBox>
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             <Grid item xs={12} md={12} lg={12}>
               <Projects rowData={rows} />
             </Grid>

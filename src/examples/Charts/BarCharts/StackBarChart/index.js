@@ -108,12 +108,12 @@ function StackBarChart({ color }) {
       {
         label: "Available Limit",
         data: chartData.avalAmount, // Fixed reference here
-        backgroundColor: "#800000",
+        backgroundColor: "#004831",
       },
       {
         label: "Utilised Limit",
         data: chartData.utilAmount, // Fixed reference here
-        backgroundColor: "#c08552",
+        backgroundColor: "#4CAE50",
       },
     ],
   };
@@ -126,7 +126,7 @@ function StackBarChart({ color }) {
             <MDBox
               variant="gradient"
               borderRadius="lg"
-              height="20.5rem"
+              height="23rem"
               style={{
                 display: "flex",
                 flexDirection: "column",

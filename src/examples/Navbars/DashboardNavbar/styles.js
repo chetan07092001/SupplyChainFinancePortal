@@ -36,7 +36,7 @@ function navbar(theme, ownerState) {
     boxShadow: "0px 4px 10px rgba(0, 0, 0, 0.25)", // Optional shadow for visual depth
     backgroundColor: light ? white.main : background.default,
     color: () => {
-      let color = "maroon";
+      let color = "#292075";
 
       // if (light) {
       //   color = white.main;

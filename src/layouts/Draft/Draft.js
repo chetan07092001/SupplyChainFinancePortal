@@ -41,25 +41,6 @@ import { useSessionId } from "customHook/useSessionId";
 import authorsTableData from "layouts/tables/data/authorsTableData";
 
 function Tables() {
-  const getSessionId = async () => {
-    try {
-      const response = await axios.get(
-        "https://scfdemo.newgensoftware.net:8443/scf/fetchSessionId",
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
-      );
-
-      console.log(response.data);
-      return response.data;
-    } catch (error) {
-      console.error(error);
-      return [];
-    }
-  };
-
   const viewDoc = async (item) => {
     console.log("hello");
     const wiName = item.proccessinstanceid; // Change to match the API response
@@ -126,7 +107,7 @@ function Tables() {
           align: "left",
         },
 
-        { Header: "Vendor Name", accessor: "vendorname", width: "15%", align: "left" },
+        { Header: "Spoke Name", accessor: "vendorname", width: "15%", align: "left" },
         { Header: "Anchor Name", accessor: "anchorname", width: "15%", align: "left" },
         { Header: "View", accessor: "view", width: "5%", align: "center" },
       ],

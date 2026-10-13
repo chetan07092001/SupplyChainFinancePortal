@@ -10,12 +10,13 @@ import { useSessionId } from "customHook/useSessionId";
 const viewDoc = async (item) => {
   const wiName = item.processinstanceid; // Change to match the API response
   console.log(wiName + " WID");
-
+  const wid = item.wid;
+  console.log(wid);
   const sID = await useSessionId(); // Make sure to await for the session ID
   console.log(sID + " SID");
 
   window.open(
-    `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=1&SessionId=${sID}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
+    `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=${wid}&SessionId=${sID}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
   );
   console.log(item);
 };
@@ -80,7 +81,7 @@ export default function DataTable() {
         width: "20%",
         align: "left",
       },
-      { Header: "Vendor Name", accessor: "vendorname", width: "15%", align: "left" },
+      { Header: "Spoke Name", accessor: "vendorname", width: "15%", align: "left" },
       { Header: "Anchor Name", accessor: "anchorname", width: "15%", align: "left" },
       { Header: "Total Amount", accessor: "totalinvamount", width: "15%", align: "left" },
       {

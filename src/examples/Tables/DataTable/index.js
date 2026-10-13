@@ -47,6 +47,8 @@ function DataTable({
   pagination,
   isSorted,
   noEndBorder,
+  initialPageIndex,
+  onPageChange,
 }) {
   const defaultValue = entriesPerPage.defaultValue ? entriesPerPage.defaultValue : 10;
   const entries = entriesPerPage.entries
@@ -56,7 +58,14 @@ function DataTable({
   const data = useMemo(() => table.rows, [table]);
 
   const tableInstance = useTable(
-    { columns, data, initialState: { pageIndex: 0 } },
+    {
+      columns,
+      data,
+      initialState: {
+        pageIndex: initialPageIndex ?? 0, // 👈 controlled start page
+      },
+      autoResetPage: false, // 👈 IMPORTANT (prevents reset on re-render)
+    },
     useGlobalFilter,
     useSortBy,
     usePagination
@@ -79,6 +88,23 @@ function DataTable({
     setGlobalFilter,
     state: { pageIndex, pageSize, globalFilter },
   } = tableInstance;
+
+  useEffect(() => {
+    if (typeof initialPageIndex === "number") {
+      gotoPage(initialPageIndex);
+    }
+  }, [initialPageIndex, gotoPage]);
+
+  //pagenation
+  useEffect(() => {
+    if (typeof onPageChange === "function") {
+      onPageChange({
+        pageIndex, // 0-based
+        pageSize,
+        pageCount: pageOptions.length,
+      });
+    }
+  }, [pageIndex, pageSize, pageOptions.length, onPageChange]);
 
   // Set the default value for the entries per page when component mounts
   useEffect(() => setPageSize(defaultValue || 10), [defaultValue]);
@@ -271,12 +297,14 @@ function DataTable({
 
 // Setting default values for the props of DataTable
 DataTable.defaultProps = {
-  entriesPerPage: { defaultValue: 10, entries: [5, 10, 15, 20, 25] },
+  entriesPerPage: { defaultValue: 20, entries: [5, 10, 15, 20, 25] },
   canSearch: false,
   showTotalEntries: true,
   pagination: { variant: "gradient", color: "info" },
   isSorted: true,
   noEndBorder: false,
+  initialPageIndex: 0,
+  onPageChange: undefined,
 };
 
 // Typechecking props for the DataTable
@@ -306,6 +334,8 @@ DataTable.propTypes = {
   }),
   isSorted: PropTypes.bool,
   noEndBorder: PropTypes.bool,
+  initialPageIndex: PropTypes.number,
+  onPageChange: PropTypes.func,
 };
 
 export default DataTable;

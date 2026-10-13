@@ -66,7 +66,7 @@ export default function data() {
 
       { Header: "Anchor Name", accessor: "vendorname", align: "left" },
       { Header: "Invoice Number", accessor: "invoicenumber", width: "15%", align: "left" },
-      { Header: "Invoice Date", accessor: "transactiondate", align: "center" },
+      { Header: "Invoice Date", accessor: "invoicedate", align: "center" },
       { Header: "Invoice Amount", accessor: "invoiceamount", align: "right" },
       { Header: "Due Date", accessor: "duedate", align: "center" },
       { Header: "Disburse Amount", accessor: "disburseamount", align: "right" },

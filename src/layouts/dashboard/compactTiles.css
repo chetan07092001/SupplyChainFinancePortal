@@ -1,0 +1,54 @@
+.compactKpiCard{
+  padding: 10px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  cursor: pointer;
+  max-width: 200px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+}
+.compactKpiCard .kpi-top{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.compactKpiCard .kpi-title{
+  color: #7b809a;
+  font-size: 12px;
+  line-height: 1;
+}
+.compactKpiCard .kpi-change{
+  color: var(--kpi-color, #4caf50);
+  font-size: 12px;
+  line-height: 1;
+}
+.compactKpiCard .kpi-value{
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 6px;
+  color: #344767;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.compactKpiCard .kpi-sub{
+  font-size: 12px;
+  color: #7b809a;
+  font-weight: 500;
+}
+.compactKpiCard svg{
+  width: 100%;
+  height: 30px;
+  margin-top: 8px;
+}
+.compactKpiCard path{
+  stroke-width: 3 !important;
+}
+
+/* Hover effect (kept minimal so it doesn't override other cards) */
+.compactKpiCard:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}

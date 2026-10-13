@@ -5,43 +5,11 @@ import { Icon, IconButton } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useFetchScfApi } from "customHook/useFetchScfApi";
 import { useSessionId } from "customHook/useSessionId";
-const getData = async () => {
-  try {
-    const response = await axios.get(
-      "https://scfdemo.newgensoftware.net:8443/scf/fetchSettlementData?activityName=Initiation",
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      }
-    );
-    console.log("data");
-    console.log(response.data);
-    return response.data;
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
-};
+
 let excel;
 export function excelData() {
   return excel;
 }
-const getSessionId = async () => {
-  try {
-    const response = await axios.get("https://scfdemo.newgensoftware.net:8443/scf/fetchSessionId", {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-      },
-    });
-
-    console.log(response.data);
-    return response.data;
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
-};
 
 const viewDoc = async (item) => {
   const wiName = item.winame; // Change to match the API response
@@ -107,14 +75,9 @@ export default function DataTable() {
       { Header: "Reference Number", accessor: "winame", width: "15%", align: "left" },
       { Header: "Anchor Name", accessor: "anchorname", width: "15%", align: "left" },
       { Header: "Anchor Code", accessor: "anchorcode", width: "15%", align: "left" },
-      //   {
-      //     Header: "Reference Number",
-      //     accessor: "processid",
-      //     width: "20%",
-      //     align: "left",
-      //   },
-      { Header: "Vendor Name", accessor: "vendorname", width: "15%", align: "left" },
-      { Header: "Vendor Code", accessor: "vendorcode", width: "15%", align: "left" },
+
+      { Header: "Spoke Name", accessor: "vendorname", width: "15%", align: "left" },
+      { Header: "Spoke Code", accessor: "vendorcode", width: "15%", align: "left" },
       { Header: "Transaction Date", accessor: "transactiondate", width: "15%", align: "left" },
       { Header: "Status", accessor: "status", width: "15%", align: "left" },
       { Header: "View", accessor: "view", align: "center" },

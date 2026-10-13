@@ -13,7 +13,7 @@ Coded by www.creative-tim.com
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // @mui material components
 import Card from "@mui/material/Card";
@@ -39,17 +39,30 @@ import "animate.css";
 import * as XLSX from "xlsx/xlsx.mjs";
 import { saveAs } from "file-saver";
 import { Padding } from "@mui/icons-material";
-
+import InputLabel from "@mui/material/InputLabel";
+import FormControl from "@mui/material/FormControl";
+import Select from "@mui/material/Select";
 function rearrangeObjects(dataArray) {
   return dataArray.map((item) => {
     // Extract the winame key-value pair
     const { winame, ...rest } = item;
-    console.log("sadadsada");
-    console.log(item);
+
     // Create a new object with winame first, followed by the rest of the key-value pairs
     return { winame, ...rest };
   });
 }
+
+const kpiCardStyle = {
+  p: 3,
+  borderRadius: "16px",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  border: "1px solid #e5e7eb",
+  transition: "0.3s",
+  "&:hover": {
+    transform: "translateY(-3px)",
+    boxShadow: "0 20px 40px rgba(0,0,0,0.12)",
+  },
+};
 
 const transformData = (data) => {
   return data.map((item) =>
@@ -68,7 +81,7 @@ let header;
 let name;
 if (localStorage.getItem("type") == "Anchor") {
   header = "vendorname";
-  name = "Vendor Name";
+  name = "Spoke Name";
 } else {
   header = "anchorname";
   name = "Anchor Name";
@@ -86,29 +99,27 @@ function data(rowData) {
 
       { Header: name, accessor: header, align: "left" },
       { Header: "Invoice Number", accessor: "invoicenumber", width: "15%", align: "left" },
-      { Header: "Invoice Date", accessor: "invoicedate", align: "center" },
-      { Header: "Invoice Amount", accessor: "invoiceamount", align: "right" },
-      { Header: "Due Date", accessor: "duedate", align: "center" },
-      { Header: "Disburse Amount", accessor: "disburseamount", align: "right" },
-      { Header: "Disburse Date", accessor: "disbursedate", align: "center" },
+      { Header: "Invoice Date", accessor: "invoicedate", align: "left" },
+      { Header: "Invoice Amount", accessor: "invoiceamount", align: "left" },
+      { Header: "Due Date", accessor: "duedate", align: "left" },
+      { Header: "Disburse Amount", accessor: "disburseamount", align: "left" },
+      { Header: "Disburse Date", accessor: "disbursedate", align: "left" },
     ],
     rows: transformData(rowData),
   };
 }
 
 function Projects({ rowData }) {
-  const navigate = useNavigate();
   const { columns, rows } = data(rowData);
   console.log(rows, columns);
   const [menu, setMenu] = useState(null);
   const [loading, setLoading] = useState(false);
   const openMenu = ({ currentTarget }) => setMenu(currentTarget);
   const closeMenu = () => setMenu(null);
-
+  const [sort, setSort] = useState("");
   const getExcelSheet = () => {
     const jsonData = rearrangeObjects(rowData);
-    console.log(jsonData);
-    console.log(jsonData);
+
     const headers = [
       [
         "",
@@ -184,6 +195,14 @@ function Projects({ rowData }) {
       console.log("Error is ", e);
     }
   };
+  useEffect(() => {
+    rowData.sort((a, b) => parseFloat(a.invoiceAmount) - parseFloat(b.invoiceAmount));
+
+    console.log(rowData, "new");
+  }, [sort]);
+  const onChangeSort = (e) => {
+    setSort(e.target.value);
+  };
 
   return (
     <Card className="animate animate animate_fadeIn">
@@ -223,14 +242,17 @@ function Projects({ rowData }) {
           <MDButton
             style={{
               color: "white",
-              backgroundColor: "maroon",
+              backgroundColor: "#008533",
               marginRight: "20px",
             }}
             sx={{
-              transition: "transform 0.3s, box-shadow 0.3s", // Smooth transition for transform and box-shadow
+              background: "#008533", // blue → purple
+              color: "white",
+              transition: "transform 0.3s, box-shadow 0.3s",
               "&:hover": {
+                background: "#0d9441", // slightly darker hover gradient
                 transform: "scale(1.05)", // Scale up the button
-                boxShadow: "0 2px 5px maroon",
+                boxShadow: "0 2px 5px #022907",
               },
             }}
             onClick={uploadInvoice}
@@ -240,29 +262,43 @@ function Projects({ rowData }) {
           <MDButton
             onClick={getExcelSheet}
             style={{
-              backgroundColor: "maroon",
+              backgroundColor: "#008533",
               color: "white",
               height: "5px",
               width: "5px",
             }}
             sx={{
-              transition: "transform 0.3s, box-shadow 0.3s", // Smooth transition for transform and box-shadow
+              background: "#008533", // blue → purple
+              color: "white",
+              transition: "transform 0.3s, box-shadow 0.3s",
               "&:hover": {
+                background: "#0d9441", // slightly darker hover gradient
                 transform: "scale(1.05)", // Scale up the button
-                boxShadow: "0 2px 5px maroon",
+                boxShadow: "0 2px 5px #022907",
               },
             }}
             iconOnly
           >
             <FileDownloadIcon style={{ fontSize: "24px" }}></FileDownloadIcon>
           </MDButton>
+          {/* <FormControl fullWidth>
+            <InputLabel id="demo-simple-select-label">Age</InputLabel>
+            <Select
+              labelId="demo-simple-select-label"
+              id="demo-simple-select"
+              value={sort}
+              label="value"
+              onChange={onChangeSort}
+            >
+              <MenuItem value={"invoiceAmount"}>invoiceAmount</MenuItem>
+            </Select>
+          </FormControl> */}
         </MDBox>
       </MDBox>
       <MDBox>
         <DataTable
           table={{ columns, rows }}
           showTotalEntries={true}
-          isSorted={false}
           noEndBorder
           entriesPerPage={false}
         />

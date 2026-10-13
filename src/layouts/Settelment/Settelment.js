@@ -119,11 +119,21 @@ function Settelment() {
           <MDButton
             onClick={getData}
             style={{
-              backgroundColor: "maroon",
+              backgroundColor: "#008533",
               color: "white",
               height: "5px",
               width: "5px",
               borderRadius: "50%",
+            }}
+            sx={{
+              background: "#008533", // blue → purple
+              color: "white",
+              transition: "transform 0.3s, box-shadow 0.3s",
+              "&:hover": {
+                background: "#0d9441", // slightly darker hover gradient
+                transform: "scale(1.05)", // Scale up the button
+                boxShadow: "0 2px 5px #067e1a",
+              },
             }}
             iconOnly
           >
@@ -139,7 +149,6 @@ function Settelment() {
                 <MDBox pt={1}>
                   <DataTable
                     table={{ columns, rows }}
-                    isSorted={false}
                     entriesPerPage={false}
                     showTotalEntries={true}
                     noEndBorder

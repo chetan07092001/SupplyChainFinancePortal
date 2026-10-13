@@ -14,12 +14,15 @@ Coded by www.creative-tim.com
 */
 function collapseItem(theme, ownerState) {
   const { palette, transitions, breakpoints, boxShadows, borders, functions } = theme;
-  const { active, transparentSidenav, whiteSidenav, darkMode, sidenavColor } = ownerState;
+  const { active, transparentSidenav, whiteSidenav, darkMode, sidenavColor, nested } = ownerState;
 
   const { white, transparent, dark, grey, gradients } = palette;
   const { md } = boxShadows;
   const { borderRadius } = borders;
   const { pxToRem, rgba, linearGradient } = functions;
+
+  const leftMargin = nested ? pxToRem(12) : pxToRem(16);
+  const paddingY = nested ? pxToRem(6) : pxToRem(8);
 
   return {
     background: active
@@ -32,8 +35,8 @@ function collapseItem(theme, ownerState) {
     display: "flex",
     alignItems: "center",
     width: "100%",
-    padding: `${pxToRem(8)} ${pxToRem(10)}`,
-    margin: `${pxToRem(1.5)} ${pxToRem(16)}`,
+    padding: `${paddingY} ${pxToRem(10)}`,
+    margin: `${pxToRem(1.5)} ${leftMargin}`,
     borderRadius: borderRadius.md,
     cursor: "pointer",
     userSelect: "none",
@@ -98,18 +101,19 @@ const collapseIcon = ({ palette: { white, gradients } }, { active }) => ({
 
 function collapseText(theme, ownerState) {
   const { typography, transitions, breakpoints, functions } = theme;
-  const { miniSidenav, transparentSidenav, active } = ownerState;
+  const { miniSidenav, transparentSidenav, active, nested } = ownerState;
 
   const { size, fontWeightRegular, fontWeightLight } = typography;
   const { pxToRem } = functions;
 
   return {
-    marginLeft: pxToRem(10),
+    marginLeft: nested ? pxToRem(6) : pxToRem(10),
 
     [breakpoints.up("xl")]: {
       opacity: miniSidenav || (miniSidenav && transparentSidenav) ? 0 : 1,
       maxWidth: miniSidenav || (miniSidenav && transparentSidenav) ? 0 : "100%",
-      marginLeft: miniSidenav || (miniSidenav && transparentSidenav) ? 0 : pxToRem(10),
+      marginLeft:
+        miniSidenav || (miniSidenav && transparentSidenav) ? 0 : nested ? pxToRem(6) : pxToRem(10),
       transition: transitions.create(["opacity", "margin"], {
         easing: transitions.easing.easeInOut,
         duration: transitions.duration.standard,
@@ -118,7 +122,7 @@ function collapseText(theme, ownerState) {
 
     "& span": {
       fontWeight: active ? fontWeightRegular : fontWeightLight,
-      fontSize: size.sm,
+      fontSize: nested ? pxToRem(13) : size.sm,
       lineHeight: 0,
     },
   };

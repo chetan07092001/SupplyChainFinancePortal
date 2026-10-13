@@ -19,6 +19,19 @@ const Descrepency = lazy(() => import("layouts/Descrepency/Descrepency"));
 const Settelment = lazy(() => import("layouts/Settelment/Settelment"));
 const ApprovalReq = lazy(() => import("layouts/ApprovalReq/ApprovalReq"));
 const Checker = lazy(() => import("layouts/Checker/Checker"));
+const UploadData = lazy(() => import("layouts/UploadData/UploadData"));
+const EOnboarding = lazy(() => import("layouts/E-onboarding/E-onboarding"));
+const EarlyPaymentRecommendation = lazy(() =>
+  import("layouts/EarlyPaymentRecommendation/EarlyPaymentRecommendation")
+);
+const SupplierReview = lazy(() => import("layouts/SupplierReview/SupplierReview"));
+const Invoice = lazy(() => import("layouts/Invoice/Invoice"));
+const UploadPO = lazy(() => import("layouts/UploadPO/UploadPo"));
+const ApprovePo = lazy(() => import("layouts/ApprovePO/Approvepo"));
+const POStatus = lazy(() => import("layouts/POStatus/POstatus"));
+const Amendment = lazy(() => import("layouts/Amendment/Amendment"));
+const newDashboard = lazy(() => import("layouts/NewDashboard/Dashboard"));
+
 const container = document.getElementById("app");
 const root = createRoot(container);
 const queryClient = new QueryClient();
@@ -37,7 +50,20 @@ root.render(
               <Route path="settlement" element={<Settelment />}></Route>
               <Route path="approval_required" element={<ApprovalReq />}></Route>
               <Route path="draft" element={<Draft />}></Route>
+              <Route path="uploadData" element={<UploadData />}></Route>
               <Route path="checker" element={<Checker />}></Route>
+              <Route path="SupplierReview" element={<SupplierReview />}></Route>
+              <Route path="invoice" element={<Invoice />}></Route>
+              <Route path="upload_PO" element={<UploadPO />}></Route>
+              <Route path="approve_PO" element={<ApprovePo />}></Route>
+              <Route path="PO_status" element={<POStatus />}></Route>
+              <Route path="amendment" element={<Amendment />}></Route>
+              <Route path="E-onboarding" element={<EOnboarding />}></Route>
+              <Route
+                path="EarlyPaymentRecommendation"
+                element={<EarlyPaymentRecommendation />}
+              ></Route>
+              <Route path="newDashboard" element={<Dashboard />}></Route>
             </Route>
           </Routes>
         </Suspense>
