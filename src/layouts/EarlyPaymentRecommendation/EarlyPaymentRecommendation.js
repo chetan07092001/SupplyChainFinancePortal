@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
 import MDBox from "components/MDBox";
@@ -8,6 +8,7 @@ import MDButton from "components/MDButton";
 import DashboardLayout from "examples/LayoutContainers/DashboardLayout";
 import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import DataTable from "examples/Tables/DataTable";
+import EarlyPaymentData from "./data";
 
 const blankCardStyle = {
   p: 2,
@@ -19,26 +20,15 @@ const blankCardStyle = {
   justifyContent: "center",
 };
 
-const columns = [
-  { Header: "WI Name", accessor: "winame", align: "left" },
-  { Header: "Reference No.", accessor: "referenceno", align: "left" },
-  { Header: "Settlement Ref. No.", accessor: "settlementrefno", align: "left" },
-  { Header: "Spoke Name", accessor: "spokename", align: "left" },
-  { Header: "Spoke Code", accessor: "spokecode", align: "left" },
-  { Header: "Outstanding Amount", accessor: "outstandingamount", align: "left" },
-  { Header: "Days Remaining", accessor: "daysremaining", align: "left" },
-  { Header: "Transaction Date", accessor: "transactiondate", align: "left" },
-  { Header: "Status", accessor: "status", align: "left" },
-];
-
 function EarlyPaymentRecommendation() {
-  // For now table is empty; structure ready for future data
-  const [rows] = useState([]);
+  const { columns, rows, onfetchData, loading } = EarlyPaymentData();
   const [filter, setFilter] = useState("");
 
-  const handleClear = () => {
-    setFilter("");
-  };
+  const handleClear = () => setFilter("");
+
+  useEffect(() => {
+    if (typeof onfetchData === "function") onfetchData();
+  }, []);
 
   return (
     <DashboardLayout>
