@@ -1,0 +1,200 @@
+[2026-10-13T09:55:11.179Z] [REQUEST]
+{
+  "input": "Finance invoice for Vendor 1",
+  "historyLength": 0,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": [
+    "deeptest1",
+    "FacProg3273",
+    "prg_2182",
+    "Prog_24122025",
+    "test_syndication_full",
+    "testing_syn_full1",
+    "testing_syn_partial1",
+    "testing_syndication_partial",
+    "VF_Prog_V3",
+    "VFPROG0204"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T09:55:20.137Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "I can help you finance an invoice for Vendor 1. However, I need a few more details to proceed: Program Name, Invoice Number, Invoice Date, Invoice Amount, and Discount Amount. Please provide these details or upload the invoice document.",
+  "missingFields": [
+    "Program ID",
+    "Invoice Number",
+    "Invoice Date",
+    "Invoice Amount",
+    "Discount Amount"
+  ],
+  "suggestions": [
+    "deeptest1",
+    "FacProg3273",
+    "prg_2182",
+    "Prog_24122025",
+    "test_syndication_full",
+    "testing_syn_full1",
+    "testing_syn_partial1",
+    "testing_syndication_partial",
+    "VF_Prog_V3",
+    "VFPROG0204"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T09:55:22.857Z] [REQUEST]
+{
+  "input": "Use program deeptest1",
+  "historyLength": 2,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": [
+    "deeptest1",
+    "FacProg3273",
+    "prg_2182",
+    "Prog_24122025",
+    "test_syndication_full",
+    "testing_syn_full1",
+    "testing_syn_partial1",
+    "testing_syndication_partial",
+    "VF_Prog_V3",
+    "VFPROG0204"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T09:55:28.162Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "I have selected the program **deeptest1** for **Vendor 1**. To proceed with the loan booking, I still need the following details: Invoice Number, Invoice Date (DD/MM/YYYY), Invoice Amount, and Discount Amount.",
+  "missingFields": [
+    "Invoice Number",
+    "Invoice Date",
+    "Invoice Amount",
+    "Discount Amount"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T09:55:52.030Z] [REQUEST]
+{
+  "input": "1234567,12/12/2026,1000,1000",
+  "historyLength": 4,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": [
+    "deeptest1",
+    "FacProg3273",
+    "prg_2182",
+    "Prog_24122025",
+    "test_syndication_full",
+    "testing_syn_full1",
+    "testing_syn_partial1",
+    "testing_syndication_partial",
+    "VF_Prog_V3",
+    "VFPROG0204"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T09:55:59.403Z] [RESPONSE]
+{
+  "type": "LOAN_REQUEST",
+  "message": "I have successfully collected all the details for your loan booking. Would you like to proceed with financing this invoice for Vendor 1?",
+  "data": [
+    {
+      "Vendor Name": "Vendor 1",
+      "Spoke Code": "VEN50201",
+      "Anchor Code": "BUY0003335",
+      "Invoice Date": "12/12/2026",
+      "Invoice Number": "1234567",
+      "Invoice Amount": 1000,
+      "Discount Amount": 1000,
+      "Account Number": "ACC-VEN-201",
+      "EmailID": "ops@vendor1.com",
+      "Program ID": "deeptest1"
+    }
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:56:49.278Z] [REQUEST]
+{
+  "input": "Finance invoice for Vendor 2",
+  "historyLength": 0,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": []
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:56:54.470Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "I have identified **Vendor 2** (VEN50202). To proceed with booking the loan, please provide the following missing details: Program Name, Invoice Number, Invoice Date (DD/MM/YYYY), Invoice Amount, and Discount Amount.",
+  "missingFields": [
+    "Program ID",
+    "Invoice Number",
+    "Invoice Date",
+    "Invoice Amount",
+    "Discount Amount"
+  ],
+  "suggestions": [
+    "SCFVFProgram1",
+    "SCFVFProgram2"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:57:01.854Z] [REQUEST]
+{
+  "input": "Use program SCFVFProgram1",
+  "historyLength": 2,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": []
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:57:05.664Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "I've updated the request with program **SCFVFProgram1**. To complete the booking for **Vendor 2**, I still need the following details: Invoice Number, Invoice Date (DD/MM/YYYY), Invoice Amount, and Discount Amount.",
+  "missingFields": [
+    "Invoice Number",
+    "Invoice Date",
+    "Invoice Amount",
+    "Discount Amount"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:59:28.009Z] [REQUEST]
+{
+  "input": "Use program SCFVFProgram1",
+  "historyLength": 4,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": []
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T11:59:34.116Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "I've updated the request with program **SCFVFProgram1**. To complete the booking for **Vendor 2**, I still need the following details: Invoice Number, Invoice Date (DD/MM/YYYY), Invoice Amount, and Discount Amount.",
+  "missingFields": [
+    "Invoice Number",
+    "Invoice Date",
+    "Invoice Amount",
+    "Discount Amount"
+  ]
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T12:00:00.098Z] [REQUEST]
+{
+  "input": "12121221,12/12/2026,1000,100",
+  "historyLength": 6,
+  "hasFile": false,
+  "hasAudio": false,
+  "programs": []
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-13T12:00:07.748Z] [RESPONSE]
+{
+  "type": "LOAN_REQUEST",
+  "message": "I have collected all the necessary information to book the loan for **Vendor 2** under the **SCFVFProgram1**. Please review the details below to proceed."
+}
+────────────────────────────────────────────────────────────────────────────────

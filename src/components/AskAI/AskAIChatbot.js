@@ -21,12 +21,32 @@ import {
   Paperclip,
   Sparkles,
   HelpCircle,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { processNexusIntent } from "../../services/geminiService";
 import { SCF_DUMMY_DATA } from "../../data/scfDummyData";
 import { logChatbot } from "../../utils/chatbotLogger";
 import { fetchProgramDetails, createWorkItem, bookLoan } from "../../services/scfApiService";
+
+const REASONING_STAGES = [
+  {
+    title: "Understanding Intent & Entities",
+    detail: "Analyzing prompt, parsing invoice identifiers & vendor details...",
+  },
+  {
+    title: "SCF Program & Limit Inspection",
+    detail: "Cross-referencing active spoke catalogs, programs & credit limits...",
+  },
+  {
+    title: "Underwriting & Rules Evaluation",
+    detail: "Verifying financing eligibility, margin rates & discount terms...",
+  },
+  {
+    title: "Finalizing Actionable Intelligence",
+    detail: "Structuring recommendation, booking cards & audit summary...",
+  },
+];
 
 export function AskAIChatbot({
   isOpen: externalIsOpen,
@@ -37,10 +57,45 @@ export function AskAIChatbot({
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
   const setIsOpen = externalSetIsOpen !== undefined ? externalSetIsOpen : setInternalIsOpen;
 
+  const [isFullScreen, setIsFullScreen] = useState(true);
+  const [loadingStage, setLoadingStage] = useState(0);
+  const [loadingSeconds, setLoadingSeconds] = useState(0);
+
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [otpValue, setOtpValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let timerInterval = null;
+    let t1 = null;
+    let t2 = null;
+    let t3 = null;
+
+    if (isLoading) {
+      setLoadingStage(0);
+      setLoadingSeconds(0);
+      const startTime = Date.now();
+
+      timerInterval = setInterval(() => {
+        setLoadingSeconds(Math.floor((Date.now() - startTime) / 100) / 10);
+      }, 100);
+
+      t1 = setTimeout(() => setLoadingStage(1), 1800);
+      t2 = setTimeout(() => setLoadingStage(2), 3800);
+      t3 = setTimeout(() => setLoadingStage(3), 6000);
+    } else {
+      setLoadingStage(0);
+      setLoadingSeconds(0);
+    }
+
+    return () => {
+      if (timerInterval) clearInterval(timerInterval);
+      if (t1) clearTimeout(t1);
+      if (t2) clearTimeout(t2);
+      if (t3) clearTimeout(t3);
+    };
+  }, [isLoading]);
   const [isRecording, setIsRecording] = useState(false);
   const [permissionError, setPermissionError] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
@@ -1250,20 +1305,36 @@ export function AskAIChatbot({
         backgroundColor: "#f8fafc",
       }}
     >
+      <style>{`
+        @keyframes pulseGlow {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.08); opacity: 0.88; }
+        }
+        @keyframes bounceDot {
+          0%, 80%, 100% { transform: translateY(0); }
+          40% { transform: translateY(-5px); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
       {/* Header */}
       <div
         style={{
-          padding: "1rem 1.25rem",
-          backgroundColor: "#004831",
+          padding: "1rem 1.5rem",
+          background: "linear-gradient(135deg, #003824 0%, #004831 100%)",
           color: "#ffffff",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          borderTopLeftRadius: embedded ? "1rem" : "1.5rem",
-          borderTopRightRadius: embedded ? "1rem" : "1.5rem",
+          borderTopLeftRadius: embedded ? "1rem" : isFullScreen ? "1.25rem" : "1.5rem",
+          borderTopRightRadius: embedded ? "1rem" : isFullScreen ? "1.25rem" : "1.5rem",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
           <div
             style={{
               width: "2.5rem",
@@ -1273,50 +1344,106 @@ export function AskAIChatbot({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              boxShadow: isLoading ? "0 0 14px rgba(74, 222, 128, 0.5)" : "none",
+              animation: isLoading ? "pulseGlow 2s infinite ease-in-out" : "none",
             }}
           >
             <Sparkles size={22} style={{ color: "#4ade80" }} />
           </div>
           <div>
-            <h3 style={{ fontWeight: "bold", fontSize: "1rem", margin: 0 }}>
-              SCFAgentic AI Assistant
-            </h3>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <h3 style={{ fontWeight: "bold", fontSize: "1.05rem", margin: 0, letterSpacing: "-0.01em" }}>
+                SCFAgentic AI Assistant
+              </h3>
+              {isLoading && (
+                <span
+                  style={{
+                    padding: "0.1rem 0.5rem",
+                    backgroundColor: "rgba(74, 222, 128, 0.2)",
+                    border: "1px solid rgba(74, 222, 128, 0.4)",
+                    color: "#4ade80",
+                    borderRadius: "9999px",
+                    fontSize: "0.6875rem",
+                    fontWeight: "600",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.25rem",
+                  }}
+                >
+                  <Loader2 size={10} className="animate-spin" />
+                  Active
+                </span>
+              )}
+            </div>
             <p
               style={{
-                fontSize: "11px",
+                fontSize: "12px",
                 color: "#a7f3d0",
-                margin: 0,
+                margin: "0.15rem 0 0 0",
                 display: "flex",
                 alignItems: "center",
-                gap: "0.25rem",
+                gap: "0.35rem",
               }}
             >
               <span
                 style={{
-                  width: "6px",
-                  height: "6px",
+                  width: "7px",
+                  height: "7px",
                   backgroundColor: "#4ade80",
                   borderRadius: "50%",
                   display: "inline-block",
+                  boxShadow: "0 0 6px #4ade80",
+                  animation: isLoading ? "pulseGlow 1.2s infinite ease-in-out" : "none",
                 }}
               ></span>
-              Online • Supply Chain Finance Intelligence
+              {isLoading
+                ? `Reasoning (Step ${loadingStage + 1}/4 • ${loadingSeconds.toFixed(1)}s)...`
+                : "Online • Supply Chain Finance Intelligence"}
             </p>
           </div>
         </div>
+
         {!embedded && (
-          <button
-            onClick={() => setIsOpen(false)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255,255,255,0.8)",
-              cursor: "pointer",
-              padding: "0.25rem",
-            }}
-          >
-            <X size={22} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <button
+              type="button"
+              onClick={() => setIsFullScreen(!isFullScreen)}
+              title={isFullScreen ? "Switch to compact floating window" : "Expand close to full screen"}
+              style={{
+                background: "rgba(255,255,255,0.15)",
+                border: "none",
+                color: "#ffffff",
+                cursor: "pointer",
+                padding: "0.45rem",
+                borderRadius: "0.5rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.2s ease",
+              }}
+            >
+              {isFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              title="Close Assistant"
+              style={{
+                background: "rgba(255,255,255,0.15)",
+                border: "none",
+                color: "#ffffff",
+                cursor: "pointer",
+                padding: "0.45rem",
+                borderRadius: "0.5rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.2s ease",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -1325,7 +1452,7 @@ export function AskAIChatbot({
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "1.25rem",
+          padding: isFullScreen ? "1.5rem 2.5rem" : "1.25rem",
           display: "flex",
           flexDirection: "column",
           gap: "1rem",
@@ -1535,39 +1662,230 @@ export function AskAIChatbot({
           <div
             style={{
               display: "flex",
-              gap: "0.5rem",
-              alignItems: "center",
-              color: "#64748b",
-              fontSize: "0.75rem",
+              flexDirection: "column",
+              gap: "0.75rem",
+              padding: "1.125rem 1.25rem",
+              backgroundColor: "#ffffff",
+              borderRadius: "1.25rem",
+              border: "1px solid #a7f3d0",
+              boxShadow: "0 10px 25px -5px rgba(5, 150, 105, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+              maxWidth: isFullScreen ? "820px" : "100%",
+              margin: isFullScreen ? "0 auto" : "0",
+              width: "100%",
+              animation: "fadeIn 0.3s ease",
             }}
           >
+            {/* Top row: Avatar, Engine Title, Live Stopwatch */}
             <div
               style={{
-                width: "2rem",
-                height: "2rem",
-                borderRadius: "50%",
-                backgroundColor: "#059669",
-                color: "#ffffff",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Bot size={14} />
-            </div>
-            <div
-              style={{
-                padding: "0.75rem 1rem",
-                backgroundColor: "#ffffff",
-                borderRadius: "1rem",
-                border: "1px solid #e2e8f0",
-                display: "flex",
-                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
                 gap: "0.5rem",
               }}
             >
-              <Loader2 size={16} className="animate-spin" style={{ color: "#059669" }} />
-              <span>Analyzing SCF data & intent...</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+                <div
+                  style={{
+                    width: "2.25rem",
+                    height: "2.25rem",
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, #059669, #004831)",
+                    color: "#ffffff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 0 12px rgba(5, 150, 105, 0.4)",
+                    animation: "pulseGlow 2s infinite ease-in-out",
+                  }}
+                >
+                  <Sparkles size={16} style={{ color: "#a7f3d0" }} />
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <span style={{ fontWeight: "700", fontSize: "0.875rem", color: "#0f172a" }}>
+                      Nexus AI Reasoning
+                    </span>
+                    <span
+                      style={{
+                        padding: "0.15rem 0.5rem",
+                        backgroundColor: "#ecfdf5",
+                        color: "#059669",
+                        borderRadius: "9999px",
+                        fontSize: "0.6875rem",
+                        fontWeight: "600",
+                        border: "1px solid #a7f3d0",
+                      }}
+                    >
+                      Step {loadingStage + 1} of {REASONING_STAGES.length}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                    Supply Chain Finance Intelligence Engine
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Stopwatch Badge */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.25rem 0.625rem",
+                  backgroundColor: "#f1f5f9",
+                  borderRadius: "9999px",
+                  fontSize: "0.75rem",
+                  color: "#475569",
+                  fontWeight: "600",
+                }}
+              >
+                <Loader2 size={13} className="animate-spin" style={{ color: "#059669" }} />
+                <span>{loadingSeconds.toFixed(1)}s</span>
+              </div>
+            </div>
+
+            {/* Current Active Stage Description with Bouncing Dots */}
+            <div
+              style={{
+                padding: "0.75rem 1rem",
+                backgroundColor: "#f0fdf4",
+                borderRadius: "0.75rem",
+                border: "1px solid #bbf7d0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "0.75rem",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+                <div
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    backgroundColor: "#059669",
+                    animation: "pulseGlow 1.2s infinite ease-in-out",
+                    shrink: 0,
+                  }}
+                />
+                <div>
+                  <div style={{ fontSize: "0.8125rem", fontWeight: "700", color: "#065f46" }}>
+                    {REASONING_STAGES[loadingStage]?.title || "Reasoning..."}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "#047857" }}>
+                    {REASONING_STAGES[loadingStage]?.detail || "Analyzing data..."}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bouncing Dots */}
+              <div style={{ display: "flex", gap: "4px", alignItems: "center", shrink: 0 }}>
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    backgroundColor: "#059669",
+                    animation: "bounceDot 1.4s infinite ease-in-out 0ms",
+                  }}
+                />
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    backgroundColor: "#059669",
+                    animation: "bounceDot 1.4s infinite ease-in-out 200ms",
+                  }}
+                />
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    backgroundColor: "#059669",
+                    animation: "bounceDot 1.4s infinite ease-in-out 400ms",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 4-Step Progress Indicator */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: "0.375rem",
+                marginTop: "0.125rem",
+              }}
+            >
+              {REASONING_STAGES.map((stage, idx) => {
+                const isCompleted = idx < loadingStage;
+                const isCurrent = idx === loadingStage;
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: "0.375rem 0.5rem",
+                      borderRadius: "0.5rem",
+                      backgroundColor: isCompleted
+                        ? "#ecfdf5"
+                        : isCurrent
+                        ? "#f0fdf4"
+                        : "#f8fafc",
+                      border: isCompleted
+                        ? "1px solid #a7f3d0"
+                        : isCurrent
+                        ? "1px solid #34d399"
+                        : "1px solid #e2e8f0",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.375rem",
+                      transition: "all 0.3s ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "14px",
+                        height: "14px",
+                        borderRadius: "50%",
+                        backgroundColor: isCompleted
+                          ? "#059669"
+                          : isCurrent
+                          ? "#10b981"
+                          : "#cbd5e1",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "9px",
+                        fontWeight: "bold",
+                        shrink: 0,
+                      }}
+                    >
+                      {isCompleted ? "✓" : idx + 1}
+                    </div>
+                    <span
+                      style={{
+                        fontSize: "0.6875rem",
+                        fontWeight: isCurrent ? "700" : "500",
+                        color: isCompleted
+                          ? "#065f46"
+                          : isCurrent
+                          ? "#047857"
+                          : "#94a3b8",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {stage.title.split(" ")[0]}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1579,14 +1897,14 @@ export function AskAIChatbot({
       <form
         onSubmit={(e) => handleSendMessage(e)}
         style={{
-          padding: "1rem",
+          padding: isFullScreen ? "1rem 2.5rem" : "1rem",
           backgroundColor: "#ffffff",
           borderTop: "1px solid #e2e8f0",
           display: "flex",
           flexDirection: "column",
           gap: "0.5rem",
-          borderBottomLeftRadius: embedded ? "1rem" : "1.5rem",
-          borderBottomRightRadius: embedded ? "1rem" : "1.5rem",
+          borderBottomLeftRadius: embedded ? "1rem" : isFullScreen ? "1.25rem" : "1.5rem",
+          borderBottomRightRadius: embedded ? "1rem" : isFullScreen ? "1.25rem" : "1.5rem",
         }}
       >
         {attachedFile && (
@@ -1683,14 +2001,20 @@ export function AskAIChatbot({
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Ask AI about invoices, loans, settlements..."
+            placeholder={
+              isLoading
+                ? `Nexus AI is processing your request (${loadingSeconds.toFixed(1)}s)...`
+                : "Ask AI about invoices, loans, settlements..."
+            }
             style={{
               flex: 1,
               padding: "0.625rem 1rem",
-              border: "1px solid #cbd5e1",
+              border: isLoading ? "1px solid #10b981" : "1px solid #cbd5e1",
               borderRadius: "0.75rem",
               fontSize: "0.875rem",
               outline: "none",
+              backgroundColor: isLoading ? "#f0fdf4" : "#ffffff",
+              transition: "all 0.2s ease",
             }}
           />
 
@@ -1698,9 +2022,9 @@ export function AskAIChatbot({
             type="submit"
             disabled={(!inputValue.trim() && !attachedFile) || isLoading}
             style={{
-              padding: "0.625rem 1rem",
+              padding: "0.625rem 1.125rem",
               backgroundColor: "#004831",
-              opacity: (!inputValue.trim() && !attachedFile) || isLoading ? 0.5 : 1,
+              opacity: (!inputValue.trim() && !attachedFile) || isLoading ? 0.6 : 1,
               color: "#ffffff",
               border: "none",
               borderRadius: "0.75rem",
@@ -1711,7 +2035,7 @@ export function AskAIChatbot({
               gap: "0.375rem",
             }}
           >
-            <Send size={16} />
+            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
           </button>
         </div>
       </form>
@@ -1765,23 +2089,64 @@ export function AskAIChatbot({
 
       {/* Floating Drawer / Modal */}
       {isOpen && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "7rem",
-            right: "2.5rem",
-            width: "420px",
-            maxWidth: "90vw",
-            height: "620px",
-            maxHeight: "80vh",
-            zIndex: 99999,
-            borderRadius: "1.5rem",
-            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-            overflow: "hidden",
-          }}
-        >
-          {renderContent()}
-        </div>
+        <>
+          {isFullScreen && (
+            <div
+              onClick={() => setIsOpen(false)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                backgroundColor: "rgba(15, 23, 42, 0.52)",
+                backdropFilter: "blur(4px)",
+                WebkitBackdropFilter: "blur(4px)",
+                zIndex: 99998,
+                transition: "opacity 0.25s ease",
+              }}
+            />
+          )}
+
+          <div
+            style={
+              isFullScreen
+                ? {
+                    position: "fixed",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: "min(1440px, 94vw)",
+                    height: "min(920px, 92vh)",
+                    maxWidth: "96vw",
+                    maxHeight: "94vh",
+                    zIndex: 99999,
+                    borderRadius: "1.25rem",
+                    boxShadow:
+                      "0 25px 60px -15px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1)",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+                  }
+                : {
+                    position: "fixed",
+                    bottom: "6.5rem",
+                    right: "2.5rem",
+                    width: "450px",
+                    maxWidth: "92vw",
+                    height: "640px",
+                    maxHeight: "82vh",
+                    zIndex: 99999,
+                    borderRadius: "1.5rem",
+                    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.28)",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    transition: "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+                  }
+            }
+          >
+            {renderContent()}
+          </div>
+        </>
       )}
     </>
   );

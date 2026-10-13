@@ -67,7 +67,28 @@ Per your preference, the assistant is integrated strictly as a **non-intrusive f
 
 ---
 
-## 5. Next Steps to Run
+## 5. UI Enhancements: Close to Full-Screen & Responsive Reasoning
+
+Following user feedback:
+1. **Close to Full-Screen Layout**:
+   - The assistant window defaults to **Close to Full-Screen** (`width: min(1440px, 94vw)`, `height: min(920px, 92vh)`), centered on screen with a soft blurred backdrop (`backdrop-filter: blur(4px)`).
+   - Added a **View Mode Toggle button** (`Maximize2` / `Minimize2` icons) in the top-right header so you can switch between large workspace view and compact bottom-right drawer (`450px × 640px`) at any time.
+2. **Live Responsive Behavior During Reasoning**:
+   - **Multi-Stage Reasoning Tracker**: Cycles dynamically through 4 SCF agentic stages while waiting for AI and API responses:
+     1. *Understanding Intent & Entities* (0-1.8s)
+     2. *SCF Program & Limit Inspection* (1.8-3.8s)
+     3. *Underwriting & Rules Evaluation* (3.8-6.0s)
+     4. *Finalizing Actionable Intelligence* (6.0s+)
+   - **Visual Feedback**:
+     - Live elapsed stopwatch timer (`⏱ X.Xs`).
+     - Animated bouncing dots and pulsing aura on the agent avatar.
+     - 4-step progress pill tracker with checkmarks for completed steps and highlight for active step.
+     - Header activity badge updating dynamically (`Reasoning (Step X/4 • X.Xs)...`).
+     - Dynamic input placeholder & spinning send button reflecting active processing status.
+
+---
+
+## 6. Next Steps to Run
 
 1. **Add Your Gemini API Key**:
    Open `.env` in `scfPortal 2` and paste your key:
