@@ -1352,7 +1352,14 @@ export function AskAIChatbot({
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <h3 style={{ fontWeight: "bold", fontSize: "1.05rem", margin: 0, letterSpacing: "-0.01em" }}>
+              <h3
+                style={{
+                  fontWeight: "bold",
+                  fontSize: "1.05rem",
+                  margin: 0,
+                  letterSpacing: "-0.01em",
+                }}
+              >
                 SCFAgentic AI Assistant
               </h3>
               {isLoading && (
@@ -1408,7 +1415,9 @@ export function AskAIChatbot({
             <button
               type="button"
               onClick={() => setIsFullScreen(!isFullScreen)}
-              title={isFullScreen ? "Switch to compact floating window" : "Expand close to full screen"}
+              title={
+                isFullScreen ? "Switch to compact floating window" : "Expand close to full screen"
+              }
               style={{
                 background: "rgba(255,255,255,0.15)",
                 border: "none",
@@ -1668,7 +1677,8 @@ export function AskAIChatbot({
               backgroundColor: "#ffffff",
               borderRadius: "1.25rem",
               border: "1px solid #a7f3d0",
-              boxShadow: "0 10px 25px -5px rgba(5, 150, 105, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+              boxShadow:
+                "0 10px 25px -5px rgba(5, 150, 105, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
               maxWidth: isFullScreen ? "820px" : "100%",
               margin: isFullScreen ? "0 auto" : "0",
               width: "100%",
@@ -1830,11 +1840,7 @@ export function AskAIChatbot({
                     style={{
                       padding: "0.375rem 0.5rem",
                       borderRadius: "0.5rem",
-                      backgroundColor: isCompleted
-                        ? "#ecfdf5"
-                        : isCurrent
-                        ? "#f0fdf4"
-                        : "#f8fafc",
+                      backgroundColor: isCompleted ? "#ecfdf5" : isCurrent ? "#f0fdf4" : "#f8fafc",
                       border: isCompleted
                         ? "1px solid #a7f3d0"
                         : isCurrent
@@ -1871,11 +1877,7 @@ export function AskAIChatbot({
                       style={{
                         fontSize: "0.6875rem",
                         fontWeight: isCurrent ? "700" : "500",
-                        color: isCompleted
-                          ? "#065f46"
-                          : isCurrent
-                          ? "#047857"
-                          : "#94a3b8",
+                        color: isCompleted ? "#065f46" : isCurrent ? "#047857" : "#94a3b8",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
