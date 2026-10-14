@@ -23,11 +23,25 @@ import {
   HelpCircle,
   Maximize2,
   Minimize2,
+  Layers,
 } from "lucide-react";
 import { processNexusIntent } from "../../services/geminiService";
-import { SCF_DUMMY_DATA } from "../../data/scfDummyData";
 import { logChatbot } from "../../utils/chatbotLogger";
-import { fetchProgramDetails, createWorkItem, bookLoan } from "../../services/scfApiService";
+import {
+  TRANSACTION_STATES,
+  FIELD_PROVENANCE,
+  generateTransactionId,
+  createNewTransaction,
+  validateTransactionData,
+  mergeRequestEntities,
+  transitionTransaction,
+} from "../../services/transactionState";
+import {
+  getVendorPrograms,
+  createLoanWorkItemTool,
+  verifyLoanOtpTool,
+  bookLoanTool,
+} from "../../services/businessTools";
 
 const REASONING_STAGES = [
   {
@@ -61,10 +75,33 @@ export function AskAIChatbot({
   const [loadingStage, setLoadingStage] = useState(0);
   const [loadingSeconds, setLoadingSeconds] = useState(0);
 
+  // Multi-Transaction State Management
+  const [initialTxn] = useState(() => createNewTransaction());
+  const [transactions, setTransactions] = useState(() => ({
+    [initialTxn.requestId]: initialTxn,
+  }));
+  const [activeRequestId, setActiveRequestId] = useState(() => initialTxn.requestId);
+
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
-  const [otpValue, setOtpValue] = useState("");
+  const [otpInputs, setOtpInputs] = useState({}); // { [requestId]: string }
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [permissionError, setPermissionError] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);
+
+  const messagesEndRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const fileInputRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   useEffect(() => {
     let timerInterval = null;
@@ -96,24 +133,6 @@ export function AskAIChatbot({
       if (t3) clearTimeout(t3);
     };
   }, [isLoading]);
-  const [isRecording, setIsRecording] = useState(false);
-  const [permissionError, setPermissionError] = useState(null);
-  const [attachedFile, setAttachedFile] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [vendorPrograms, setVendorPrograms] = useState([]);
-
-  const messagesEndRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const fileInputRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
 
   const processFile = (file) => {
     setPermissionError(null);
@@ -156,39 +175,25 @@ export function AskAIChatbot({
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
-      mediaRecorder.onstop = async () => {
+      mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
           const base64Audio = reader.result.split(",")[1];
-          handleSendMessage(undefined, { data: base64Audio, mimeType: "audio/webm" });
+          handleSendMessage(null, { data: base64Audio, mimeType: "audio/webm" });
         };
+        reader.readAsDataURL(audioBlob);
         stream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
-      console.error("Error accessing microphone:", err);
-      if (
-        err.name === "NotAllowedError" ||
-        err.name === "PermissionDeniedError" ||
-        err.message === "Permission denied"
-      ) {
-        setPermissionError(
-          "Microphone access was denied. Please enable microphone permissions in your browser settings."
-        );
-      } else {
-        setPermissionError(
-          "Could not access microphone. Please ensure it's connected and not in use by another app."
-        );
-      }
+      setPermissionError("Microphone access denied. Please allow microphone permissions.");
+      setIsRecording(false);
     }
   };
 
@@ -199,6 +204,30 @@ export function AskAIChatbot({
     }
   };
 
+  /**
+   * Start a brand new, isolated transaction
+   */
+  const handleStartNewTransaction = (vendorName = null) => {
+    const newTxn = createNewTransaction({ vendorName });
+    setTransactions((prev) => ({ ...prev, [newTxn.requestId]: newTxn }));
+    setActiveRequestId(newTxn.requestId);
+
+    const msg = {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: vendorName
+        ? `Started new invoice request for **${vendorName}** (ID: ${newTxn.requestId}). Please provide invoice number, date, amount, and discount.`
+        : `Started a new loan transaction (ID: ${newTxn.requestId}). Please provide the vendor name and invoice details.`,
+      timestamp: new Date(),
+      data: { type: "TRANSACTION_INITIALIZED", requestId: newTxn.requestId },
+    };
+    setMessages((prev) => [...prev, msg]);
+  };
+
+  /**
+   * Main Message Handler: Natural Language & File Ingestion
+   * Zero-assumption entity extraction with isolated transaction state.
+   */
   const handleSendMessage = async (e, audioData, customText) => {
     e?.preventDefault();
     const textToSend = customText !== undefined ? customText : inputValue;
@@ -212,9 +241,9 @@ export function AskAIChatbot({
     const displayContent = textToSend.trim()
       ? textToSend
       : currentFile
-      ? `I want to finance this invoice document: ${currentFile.name}`
+      ? `Processing invoice document: ${currentFile.name}`
       : audioData
-      ? "🎤 Transcribing audio..."
+      ? "🎤 Audio message"
       : "";
 
     const userMessage = {
@@ -228,9 +257,9 @@ export function AskAIChatbot({
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const history = messages
-        .filter((m) => m.role === "user" || (m.role === "assistant" && m.data))
-        .map((m) => ({ role: m.role, content: m.content, data: m.data }));
+      const historyForAI = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content }));
 
       const fileDataToSend = currentFile
         ? {
@@ -240,374 +269,630 @@ export function AskAIChatbot({
           }
         : undefined;
 
-      // Fetch real programs from API when user starts a vendor financing flow
-      let currentPrograms = vendorPrograms;
-      const financeMatch = displayContent.match(/finance\s+invoice\s+for\s+(.+)/i);
-      if (financeMatch) {
-        try {
-          const vendorName = financeMatch[1].trim();
-          const programs = await fetchProgramDetails(vendorName);
-          setVendorPrograms(programs);
-          currentPrograms = programs;
-        } catch (apiError) {
-          console.error("Failed to fetch programs:", apiError);
-          const errorMessage = {
-            id: (Date.now() + 1).toString(),
-            role: "assistant",
-            content: `⚠️ ${
-              apiError.message || "Failed to fetch program details. Please try again."
-            }`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, errorMessage]);
-          setIsLoading(false);
-          return;
-        }
-      }
-
       logChatbot("REQUEST", {
         input: displayContent,
-        historyLength: history.length,
         hasFile: !!fileDataToSend,
-        fileName: fileDataToSend?.fileName,
-        hasAudio: !!audioData,
-        programs: currentPrograms,
+        activeRequestId,
       });
 
       const result = await processNexusIntent(
         displayContent,
-        history,
+        historyForAI,
         audioData,
         fileDataToSend,
-        currentPrograms
+        transactions
       );
 
-      logChatbot("RESPONSE", {
-        type: result.type,
-        message: result.message,
-        data: result.data,
-        missingFields: result.missing_fields,
-        suggestions: result.suggestions,
+      if (result.type === "DOCUMENT_EXTRACTED") {
+        logChatbot("RESPONSE", {
+          type: result.type,
+          message: result.message,
+        });
+      }
+
+      // CASE A: Document OCR extraction returned real invoices
+      if (result.type === "DOCUMENT_EXTRACTED" && result.invoices?.length > 0) {
+        const batchId = generateTransactionId("BATCH");
+        const newTxns = { ...transactions };
+        const createdIds = [];
+
+        for (const rawInv of result.invoices) {
+          const txn = createNewTransaction({
+            batchId,
+            vendorName: rawInv.vendorName || null,
+            invoiceNumber: rawInv.invoiceNumber || null,
+            invoiceDate: rawInv.invoiceDate || null,
+            invoiceAmount: rawInv.invoiceAmount !== undefined ? rawInv.invoiceAmount : null,
+            discountAmount: rawInv.discountAmount !== undefined ? rawInv.discountAmount : null,
+            currency: rawInv.currency || "INR",
+          });
+
+          // Fetch verified programs if vendor is detected
+          if (rawInv.vendorName) {
+            try {
+              const progRes = await getVendorPrograms({ vendorName: rawInv.vendorName });
+              if (progRes.success) {
+                txn.program.availablePrograms = progRes.programs;
+              }
+            } catch (err) {
+              console.warn("Could not fetch programs during document extraction:", err);
+            }
+          }
+
+          const val = validateTransactionData(txn);
+          txn.missingFields = val.missingFields;
+          txn.validationErrors = val.validationErrors;
+          txn.status = val.valid
+            ? TRANSACTION_STATES.READY_FOR_REVIEW
+            : val.missingFields.includes("Program Name")
+            ? TRANSACTION_STATES.AWAITING_PROGRAM_SELECTION
+            : TRANSACTION_STATES.COLLECTING_DETAILS;
+
+          newTxns[txn.requestId] = txn;
+          createdIds.push(txn.requestId);
+        }
+
+        setTransactions(newTxns);
+        setActiveRequestId(createdIds[0]);
+
+        const assistantMsg = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `📄 Extracted ${result.invoices.length} invoice(s) from document '${
+            currentFile?.name || "file"
+          }'. Review the details below:`,
+          timestamp: new Date(),
+          data: {
+            type: "DOCUMENT_BATCH_EXTRACTED",
+            batchId,
+            requestIds: createdIds,
+          },
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setIsLoading(false);
+        return;
+      }
+
+      // CASE B: Natural language intent with extracted entities
+      let targetTxn = transactions[activeRequestId] || createNewTransaction();
+
+      // Check if user explicitly asked for a new invoice
+      if (result.isNewRequest) {
+        targetTxn = createNewTransaction();
+      }
+
+      // Merge extracted facts using deterministic merger
+      const mergedTxn = mergeRequestEntities(targetTxn, result.entities || {}, {
+        provenance: FIELD_PROVENANCE.USER_PROVIDED,
+        isExplicitCorrection: result.isExplicitCorrection,
       });
 
-      // Patch: if Gemini returned LOAN_REQUEST with empty data, reconstruct from input + history
-      if (result.type === "LOAN_REQUEST") {
-        const d = result.data || {};
-        const hasAmount =
-          d["Invoice Amount"] || d.invoice_amount || d.InvoiceAmount || d.invoiceAmount;
-        if (!hasAmount) {
-          const parts = displayContent.split(",").map((p) => p.trim());
-          if (parts.length >= 4) {
-            d["Invoice Number"] =
-              d["Invoice Number"] ||
-              d.invoice_number ||
-              d.InvoiceNumber ||
-              d.invoiceNumber ||
-              parts[0];
-            d["Invoice Date"] =
-              d["Invoice Date"] || d.invoice_date || d.InvoiceDate || d.invoiceDate || parts[1];
-            d["Invoice Amount"] = parseFloat(parts[2]) || 0;
-            d["Discount Amount"] = parseFloat(parts[3]) || 0;
+      // If vendor name was provided or updated, fetch real backend programs
+      const effectiveVendor = result.entities?.vendorName || targetTxn.vendor.name;
+      let fetchedPrograms = null;
+      let progError = null;
+
+      if (effectiveVendor) {
+        try {
+          const progRes = await getVendorPrograms({ vendorName: effectiveVendor });
+          if (progRes.success && Array.isArray(progRes.programs)) {
+            mergedTxn.program.availablePrograms = progRes.programs;
+            fetchedPrograms = progRes.programs;
+          } else {
+            progError = progRes.error || null;
           }
-          // Recover vendor name from conversation history
-          if (!d["Vendor Name"] && !d.vendor_name && !d.VendorName && !d.vendorName) {
-            for (const msg of [...history, { content: displayContent }]) {
-              const m = msg.content?.match(/finance\s+invoice\s+for\s+(.+)/i);
-              if (m) {
-                d["Vendor Name"] = m[1].trim();
-                break;
-              }
-            }
-          }
-          // Recover program selection from the message following a CLARIFICATION with suggestions
-          if (
-            !d["Program ID"] &&
-            !d.program_id &&
-            !d.programId &&
-            !d["Program Name"] &&
-            !d.programname
-          ) {
-            for (let i = 0; i < history.length; i++) {
-              const msg = history[i];
-              if (msg.data?.type === "CLARIFICATION" && msg.data?.suggestions?.length) {
-                const nextUser = history.slice(i + 1).find((m) => m.role === "user");
-                if (nextUser) {
-                  const matched = msg.data.suggestions.find((s) =>
-                    nextUser.content.toLowerCase().includes(s.toLowerCase())
-                  );
-                  if (matched) {
-                    d["Program ID"] = matched;
-                    break;
-                  }
-                  // Also check if the user's reply IS a program name directly
-                  d["Program ID"] = nextUser.content.trim();
-                  break;
-                }
-              }
-            }
-          }
-          result.data = d;
+        } catch (err) {
+          console.error("Error fetching vendor programs:", err);
+          progError = err.message;
         }
       }
 
-      if (audioData) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === userMessage.id
-              ? {
-                  ...m,
-                  content: result.transcription
-                    ? `🎤 ${result.transcription}`
-                    : "🎤 Audio message (transcription failed)",
-                }
-              : m
-          )
-        );
-      }
+      // Re-run deterministic validation
+      const validation = validateTransactionData(mergedTxn);
+      mergedTxn.missingFields = validation.missingFields;
+      mergedTxn.validationErrors = validation.validationErrors;
 
-      let content = result.message || result.answer || "I've processed your request.";
+      let allSiblingsValid = validation.valid;
 
-      if (audioData && result.transcription) {
-        content = `I understood: "${result.transcription}"\n\n${content}`;
-      }
-
-      if (result.type === "LOAN_REQUEST") {
-        if (!result.message) {
-          content = "Great! I've collected all the necessary information for your loan request.";
+      setTransactions((prev) => {
+        const next = { ...prev, [mergedTxn.requestId]: mergedTxn };
+        // If part of a batch, propagate vendor & program to all batch siblings
+        if (mergedTxn.batchId) {
+          for (const [id, t] of Object.entries(next)) {
+            if (t.batchId === mergedTxn.batchId && id !== mergedTxn.requestId) {
+              const updatedSibling = {
+                ...t,
+                vendor: {
+                  ...t.vendor,
+                  name: effectiveVendor || t.vendor.name,
+                },
+                program: {
+                  ...t.program,
+                  name: mergedTxn.program.name || t.program.name,
+                  id: mergedTxn.program.id || t.program.id,
+                  availablePrograms:
+                    fetchedPrograms ||
+                    mergedTxn.program.availablePrograms ||
+                    t.program.availablePrograms ||
+                    [],
+                },
+              };
+              const sibVal = validateTransactionData(updatedSibling);
+              updatedSibling.missingFields = sibVal.missingFields;
+              updatedSibling.validationErrors = sibVal.validationErrors;
+              updatedSibling.status = sibVal.valid
+                ? TRANSACTION_STATES.READY_FOR_REVIEW
+                : sibVal.missingFields.includes("Program Name")
+                ? TRANSACTION_STATES.AWAITING_PROGRAM_SELECTION
+                : TRANSACTION_STATES.COLLECTING_DETAILS;
+              if (!sibVal.valid) {
+                allSiblingsValid = false;
+              }
+              next[id] = updatedSibling;
+            }
+          }
         }
-      } else if (result.type === "ERROR") {
-        content = result.message || "I couldn't process that inquiry. Please try rephrasing.";
+        return next;
+      });
+      setActiveRequestId(mergedTxn.requestId);
+
+      // Determine response representation
+      let responseType = "CHAT";
+      if (validation.valid && allSiblingsValid) {
+        responseType = "LOAN_REQUEST_CONFIRMATION";
+      } else if (validation.missingFields.length > 0 || !allSiblingsValid) {
+        responseType = "CLARIFICATION";
       }
 
-      const assistantMessage = {
+      let responseContent = result.message || "I've processed your input.";
+      if (
+        (result.type === "LOAN_INQUIRY" || displayContent.toLowerCase().includes("program")) &&
+        effectiveVendor &&
+        !mergedTxn.program.name
+      ) {
+        if (fetchedPrograms && fetchedPrograms.length > 0) {
+          const progList = fetchedPrograms.map((p) => `• **${p}**`).join("\n");
+          responseContent = `Here are the active financing programs available for **${effectiveVendor}**:\n\n${progList}\n\nPlease click on a program pill below or type the program name to continue.`;
+        } else if (progError) {
+          responseContent = `⚠️ Could not retrieve programs for **${effectiveVendor}**: ${progError}`;
+        }
+      }
+
+      logChatbot("RESPONSE", {
+        type: responseType,
+        message: responseContent,
+      });
+
+      const assistantMsg = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: content,
+        content: responseContent,
         timestamp: new Date(),
-        data: result,
+        data: {
+          type: responseType,
+          requestId: mergedTxn.requestId,
+        },
       };
-      setMessages((prev) => [...prev, assistantMessage]);
+
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (error) {
-      console.error("Chat Error:", error);
+      console.error("Chat Processing Error:", error);
+      const errorMsg = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `⚠️ Encountered an error: ${error.message || "Please try again."}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const renderClarification = (data) => {
-    const invoices = data.extracted_invoices || (data.extracted_data ? [data.extracted_data] : []);
+  /**
+   * Work Item Creation (Confirmation step)
+   * Strictly bound to requestId and validated transaction data.
+   */
+  const handleConfirmLoan = async (requestId) => {
+    const txn = transactions[requestId];
+    if (!txn) {
+      alert("Transaction not found. Please refresh and try again.");
+      return;
+    }
+
+    const batchTxns = txn.batchId
+      ? Object.values(transactions).filter((t) => t.batchId === txn.batchId)
+      : [txn];
+
+    setIsLoading(true);
+
+    try {
+      const res = await createLoanWorkItemTool({
+        transaction: txn,
+        batchTransactions: batchTxns,
+      });
+      if (!res.success) {
+        throw new Error(res.error || "Failed to create work item on backend.");
+      }
+
+      setTransactions((prev) => {
+        const next = { ...prev };
+        if (res.allTransactions) {
+          for (const ut of res.allTransactions) {
+            next[ut.requestId] = ut;
+          }
+        } else {
+          next[requestId] = res.transaction;
+        }
+        return next;
+      });
+
+      const assistantMsg = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `Work item **${res.wiName}** has been created in the SCF system for ${
+          batchTxns.length > 1 ? `all ${batchTxns.length} invoices` : "the invoice"
+        }. To confirm and book the loan, please enter the 6-digit verification code below.`,
+        timestamp: new Date(),
+        data: {
+          type: "LOAN_OTP_REQUIRED",
+          requestId,
+          wiName: res.wiName,
+        },
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (error) {
+      console.error("Confirm Loan Error:", error);
+      const errorMsg = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `⚠️ Work item creation failed: ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * OTP Verification and Booking
+   * Strictly verifies OTP and calls bookLoan for the specific requestId.
+   */
+  const handleVerifyOTP = async (requestId) => {
+    const txn = transactions[requestId];
+    const otpCode = otpInputs[requestId] || "";
+
+    if (!txn) {
+      alert("Transaction not found.");
+      return;
+    }
+
+    if (otpCode.length !== 6) {
+      alert("Please enter a valid 6-digit OTP code.");
+      return;
+    }
+
+    const batchTxns = txn.batchId
+      ? Object.values(transactions).filter((t) => t.batchId === txn.batchId)
+      : [txn];
+
+    setIsLoading(true);
+
+    try {
+      const otpRes = await verifyLoanOtpTool({ transaction: txn, otpCode });
+      if (!otpRes.success) {
+        throw new Error(otpRes.error || "OTP verification failed.");
+      }
+
+      const verifiedBatchTxns = batchTxns.map((t) => ({
+        ...t,
+        status: TRANSACTION_STATES.OTP_PENDING,
+        otp: {
+          ...t.otp,
+          status: "verified",
+        },
+      }));
+
+      const bookRes = await bookLoanTool({
+        transaction: otpRes.transaction,
+        batchTransactions: verifiedBatchTxns,
+      });
+      if (!bookRes.success) {
+        throw new Error(bookRes.error || "Loan booking API rejected the transaction.");
+      }
+
+      setTransactions((prev) => {
+        const next = { ...prev };
+        if (bookRes.allTransactions) {
+          for (const ut of bookRes.allTransactions) {
+            next[ut.requestId] = ut;
+          }
+        } else {
+          next[requestId] = bookRes.transaction;
+        }
+        return next;
+      });
+
+      // Clear input
+      setOtpInputs((prev) => ({ ...prev, [requestId]: "" }));
+
+      const totalAmount = batchTxns.reduce(
+        (sum, t) => sum + (Number(t.invoice?.amount) || 0),
+        0
+      );
+      const isMulti = batchTxns.length > 1;
+
+      const successMsg = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `🎉 Loan Booking Confirmed! Loan case **${
+          txn.workItem?.wiName || ""
+        }** has been successfully booked with the SCF backend for Vendor **${
+          txn.vendor.name || ""
+        }** (${
+          isMulti
+            ? `Total for ${batchTxns.length} invoices: ${txn.invoice.currency} ${totalAmount.toLocaleString(
+                "en-US"
+              )}`
+            : `Amount: ${txn.invoice.currency} ${Number(txn.invoice.amount).toLocaleString(
+                "en-US"
+              )}`
+        }).`,
+        timestamp: new Date(),
+        data: {
+          type: "LOAN_BOOKING_COMPLETED",
+          requestId,
+          bookingResult: bookRes.bookingResult,
+        },
+      };
+
+      setMessages((prev) => [...prev, successMsg]);
+    } catch (error) {
+      console.error("OTP / Booking Error:", error);
+      const errorMsg = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `⚠️ ${error.message}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Render Multi-Transaction Pill Bar
+   */
+  const renderTransactionBar = () => {
+    const txnList = Object.values(transactions);
+    if (txnList.length <= 1) return null;
 
     return (
-      <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-        {invoices.length > 0 && (
-          <div
-            style={{
-              padding: "0.75rem",
-              backgroundColor: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "0.75rem",
-              fontSize: "0.75rem",
-            }}
-          >
-            <div
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.5rem",
+          padding: "0.5rem 1.25rem",
+          backgroundColor: "#f1f5f9",
+          borderBottom: "1px solid #e2e8f0",
+          overflowX: "auto",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: "700",
+            color: "#64748b",
+            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.25rem",
+          }}
+        >
+          <Layers size={12} /> Active Invoices:
+        </span>
+        {txnList.map((t) => {
+          const isActive = t.requestId === activeRequestId;
+          const label = t.invoice.number || t.vendor.name || t.requestId.split("-")[1] || "Draft";
+          return (
+            <button
+              key={t.requestId}
+              type="button"
+              onClick={() => setActiveRequestId(t.requestId)}
               style={{
+                padding: "0.25rem 0.625rem",
+                borderRadius: "9999px",
+                fontSize: "11px",
+                fontWeight: isActive ? "700" : "500",
+                backgroundColor: isActive ? "#004831" : "#ffffff",
+                color: isActive ? "#ffffff" : "#475569",
+                border: isActive ? "1px solid #004831" : "1px solid #cbd5e1",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
                 display: "flex",
-                justifyContent: "space-between",
                 alignItems: "center",
-                borderBottom: "1px solid #e2e8f0",
-                paddingBottom: "0.5rem",
+                gap: "0.375rem",
+                transition: "all 0.15s ease",
               }}
             >
+              <span>{label}</span>
               <span
                 style={{
-                  fontSize: "10px",
-                  color: "#64748b",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
+                  fontSize: "9px",
+                  padding: "0.05rem 0.3rem",
+                  borderRadius: "4px",
+                  backgroundColor: isActive ? "rgba(255,255,255,0.2)" : "#f1f5f9",
+                  color: isActive ? "#ffffff" : "#64748b",
                 }}
               >
-                📄 Extracted Invoices ({invoices.length})
+                {t.status.replace(/_/g, " ")}
               </span>
-              <span style={{ fontSize: "0.75rem", fontWeight: "900", color: "#004831" }}>
-                Total: $
-                {invoices
-                  .reduce(
-                    (acc, item) =>
-                      acc + parseFloat(item["Invoice Amount"] || item.invoice_amount || 0),
-                    0
-                  )
-                  .toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => handleStartNewTransaction()}
+          style={{
+            padding: "0.25rem 0.5rem",
+            borderRadius: "9999px",
+            fontSize: "11px",
+            fontWeight: "600",
+            backgroundColor: "#ecfdf5",
+            color: "#065f46",
+            border: "1px dashed #6ee7b7",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.25rem",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <Plus size={12} /> New
+        </button>
+      </div>
+    );
+  };
 
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-                maxHeight: "15rem",
-                overflowY: "auto",
-                paddingRight: "0.25rem",
-                marginTop: "0.5rem",
-              }}
-            >
-              {invoices.map((inv, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: "0.625rem",
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "0.5rem",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      color: "#0f172a",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    <span style={{ fontSize: "0.75rem", color: "#004831" }}>
-                      Invoice #{inv["Invoice Number"] || inv.invoice_number}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        padding: "0.125rem 0.5rem",
-                        backgroundColor: "#ecfdf5",
-                        color: "#065f46",
-                        borderRadius: "4px",
-                        fontFamily: "monospace",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {inv["Transaction ID"] || inv.transaction_id || `TXN-SCF-2026-${901 + idx}`}
-                    </span>
-                  </div>
+  /**
+   * Render Clarification Card
+   * Asks ONLY for missing fields; allows inline selection of backend programs.
+   */
+  const renderClarificationCard = (requestId) => {
+    const txn = transactions[requestId] || transactions[activeRequestId];
+    if (!txn) return null;
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "6px",
-                      fontSize: "11px",
-                      marginTop: "0.375rem",
-                    }}
-                  >
-                    <div>
-                      <span style={{ color: "#94a3b8", fontSize: "10px", display: "block" }}>
-                        Vendor:
-                      </span>
-                      <span style={{ fontWeight: "600", color: "#1e293b" }}>
-                        {inv["Vendor Name"] || inv.vendor_name || "Vendor 1"} (
-                        {inv["Spoke Code"] || inv.spoke_code || "VEN0001042"})
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: "#94a3b8", fontSize: "10px", display: "block" }}>
-                        Invoice Date:
-                      </span>
-                      <span style={{ fontWeight: "600", color: "#1e293b" }}>
-                        {inv["Invoice Date"] || inv.invoice_date}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: "#94a3b8", fontSize: "10px", display: "block" }}>
-                        Invoice Amount:
-                      </span>
-                      <span style={{ fontWeight: "bold", color: "#0f172a" }}>
-                        $
-                        {parseFloat(
-                          inv["Invoice Amount"] || inv.invoice_amount || 0
-                        ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: "#94a3b8", fontSize: "10px", display: "block" }}>
-                        Charges (Proc + Plat):
-                      </span>
-                      <span style={{ fontWeight: "600", color: "#b45309" }}>
-                        $
-                        {(
-                          parseFloat(inv["Processing Fee"] || inv.processing_fee || 0) +
-                          parseFloat(inv["Platform Fee"] || inv.platform_fee || 0)
-                        ).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+    const missing = txn.missingFields || [];
+    const availableProgs = txn.program.availablePrograms || [];
+
+    return (
+      <div
+        style={{
+          marginTop: "0.75rem",
+          padding: "1rem",
+          backgroundColor: "#f8fafc",
+          border: "1px solid #e2e8f0",
+          borderRadius: "0.75rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.75rem",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>
+            TRANSACTION: {txn.requestId}
+          </span>
+          <span style={{ fontSize: "10px", color: "#059669", fontWeight: "600" }}>
+            Status: {txn.status.replace(/_/g, " ")}
+          </span>
+        </div>
+
+        {/* Existing collected fields summary */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "0.375rem 0.75rem",
+            fontSize: "11px",
+            backgroundColor: "#ffffff",
+            padding: "0.625rem",
+            borderRadius: "0.5rem",
+            border: "1px solid #f1f5f9",
+          }}
+        >
+          <div>
+            <span style={{ color: "#94a3b8" }}>Vendor:</span>{" "}
+            <strong>{txn.vendor.name || "Missing"}</strong>
           </div>
-        )}
+          <div>
+            <span style={{ color: "#94a3b8" }}>Invoice #:</span>{" "}
+            <strong>{txn.invoice.number || "Missing"}</strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8" }}>Date:</span>{" "}
+            <strong>{txn.invoice.date || "Missing"}</strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8" }}>Amount:</span>{" "}
+            <strong>
+              {txn.invoice.amount !== null
+                ? `${txn.invoice.currency} ${Number(txn.invoice.amount).toLocaleString("en-US")}`
+                : "Missing"}
+            </strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8" }}>Discount:</span>{" "}
+            <strong>
+              {txn.invoice.discountAmount !== null
+                ? `${txn.invoice.currency} ${Number(txn.invoice.discountAmount).toLocaleString(
+                    "en-US"
+                  )}`
+                : "Missing"}
+            </strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8" }}>Program:</span>{" "}
+            <strong style={{ color: txn.program.name ? "#047857" : "#dc2626" }}>
+              {txn.program.name || "Missing"}
+            </strong>
+          </div>
+        </div>
 
-        {data.missing_fields && data.missing_fields.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-            {data.missing_fields.map((field) => (
+        {/* Missing fields alert */}
+        {missing.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+            {missing.map((f) => (
               <span
-                key={field}
+                key={f}
                 style={{
-                  padding: "0.25rem 0.5rem",
-                  backgroundColor: "#fef2f2",
-                  color: "#dc2626",
                   fontSize: "10px",
-                  fontWeight: "bold",
-                  borderRadius: "4px",
+                  fontWeight: "700",
+                  color: "#dc2626",
+                  backgroundColor: "#fef2f2",
                   border: "1px solid #fee2e2",
-                  textTransform: "uppercase",
-                  display: "flex",
+                  padding: "0.2rem 0.5rem",
+                  borderRadius: "4px",
+                  display: "inline-flex",
                   alignItems: "center",
                   gap: "0.25rem",
                 }}
               >
-                <AlertCircle size={12} />
-                Missing Required Field: {field}
+                <AlertCircle size={10} /> Missing: {f}
               </span>
             ))}
           </div>
         )}
 
-        {data.suggestions && data.suggestions.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <p
-              style={{
-                fontSize: "10px",
-                color: "#64748b",
-                fontWeight: "bold",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
+        {/* Real Backend Programs Dropdown / Pills if program is missing */}
+        {missing.includes("Program Name") && availableProgs.length > 0 && (
+          <div>
+            <span style={{ fontSize: "10px", fontWeight: "700", color: "#475569" }}>
+              Available Backend Programs for {txn.vendor.name}:
+            </span>
+            <div
+              style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem", marginTop: "0.25rem" }}
             >
-              Select Program to Finance All Extracted Invoices:
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-              {data.suggestions.map((suggestion) => (
+              {availableProgs.map((prog) => (
                 <button
-                  key={suggestion}
-                  onClick={() =>
-                    handleSendMessage(undefined, undefined, `Use program ${suggestion}`)
-                  }
+                  key={prog}
+                  type="button"
+                  onClick={() => handleSendMessage(undefined, undefined, `Use program ${prog}`)}
                   style={{
-                    padding: "0.5rem 0.75rem",
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #6ee7b7",
+                    padding: "0.3rem 0.625rem",
+                    backgroundColor: "#ecfdf5",
+                    border: "1px solid #a7f3d0",
                     color: "#065f46",
-                    fontSize: "0.75rem",
-                    fontWeight: "bold",
-                    borderRadius: "0.75rem",
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    borderRadius: "6px",
                     cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.375rem",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                   }}
                 >
-                  <CheckCircle2 size={14} style={{ color: "#059669" }} />
-                  Apply {suggestion}
+                  {prog}
                 </button>
               ))}
             </div>
@@ -617,683 +902,345 @@ export function AskAIChatbot({
     );
   };
 
-  const renderLoanRequest = (data) => {
-    const rawLoans =
-      data.loans ||
-      (data.data
-        ? Array.isArray(data.data)
-          ? data.data
-          : [data.data]
-        : Array.isArray(data)
-        ? data
-        : [data]);
-    const loansList = rawLoans.filter(Boolean);
-    const isMulti = loansList.length > 1;
-    const isConfirmed = messages.some(
-      (m) =>
-        m.data?.type === "LOAN_CONFIRMED" &&
-        (m.data.originalRequestId === data.InvoiceNumber ||
-          m.data.originalRequestId === "BATCH_MULTI_LOAN" ||
-          (m.data.loansList &&
-            m.data.loansList.some((l) => l.InvoiceNumber === data.InvoiceNumber)))
+  /**
+   * Render Confirmation Card
+   * Shows exact verified request bound strictly to requestId.
+   */
+  const renderConfirmationCard = (requestId) => {
+    const txn = transactions[requestId] || transactions[activeRequestId];
+    if (!txn) return null;
+
+    const isConfirmed =
+      txn.status === TRANSACTION_STATES.CREATING_WORK_ITEM ||
+      txn.status === TRANSACTION_STATES.OTP_PENDING ||
+      txn.status === TRANSACTION_STATES.COMPLETED;
+
+    const batchTxns = txn.batchId
+      ? Object.values(transactions).filter((t) => t.batchId === txn.batchId)
+      : [txn];
+    const isBatch = batchTxns.length > 1;
+
+    const totalAmount = batchTxns.reduce(
+      (sum, t) => sum + (Number(t.invoice?.amount) || 0),
+      0
     );
-
-    if (isConfirmed) return null;
-
-    const totalInvoiceAmount = loansList.reduce((acc, item) => {
-      const amt = parseFloat(
-        item["Invoice Amount"] ||
-          item.invoice_amount ||
-          item.InvoiceAmount ||
-          item.invoiceAmount ||
-          0
-      );
-      return acc + amt;
-    }, 0);
-
-    const totalFees = loansList.reduce((acc, item) => {
-      const proc = parseFloat(item["Processing Fee"] || item.processing_fee || 0);
-      const plat = parseFloat(item["Platform Fee"] || item.platform_fee || 0);
-      const discount = parseFloat(
-        item["Discount Amount"] || item.discount_amount || item.DiscountAmount || 0
-      );
-      return acc + proc + plat + discount;
-    }, 0);
-
-    const totalDisbursement = Math.max(0, totalInvoiceAmount - totalFees);
+    const totalDiscount = batchTxns.reduce(
+      (sum, t) => sum + (Number(t.invoice?.discountAmount) || 0),
+      0
+    );
 
     return (
       <div
         style={{
-          marginTop: "1rem",
-          padding: "1rem",
-          backgroundColor: "#ecfdf5",
+          marginTop: "0.75rem",
+          padding: "1.125rem",
+          backgroundColor: "#ffffff",
           border: "1px solid #a7f3d0",
-          borderRadius: "1rem",
+          borderRadius: "0.875rem",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)",
           display: "flex",
           flexDirection: "column",
           gap: "0.75rem",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            color: "#004831",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              fontWeight: "900",
-              fontSize: "0.875rem",
-            }}
-          >
-            <CheckCircle2 size={20} style={{ color: "#059669" }} />
-            <span>
-              {isMulti
-                ? `Batch Loan Request (${loansList.length} Invoices)`
-                : "Loan Request Summary"}
-            </span>
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#004831" }}>
+            ✓ Verified Loan Booking Request{isBatch ? ` (${batchTxns.length} Invoices)` : ""}
+          </span>
           <span
             style={{
               fontSize: "10px",
-              fontWeight: "bold",
-              padding: "0.125rem 0.5rem",
-              backgroundColor: "#d1fae5",
-              color: "#065f46",
-              borderRadius: "9999px",
+              fontFamily: "monospace",
+              color: "#64748b",
+              backgroundColor: "#f1f5f9",
+              padding: "0.15rem 0.4rem",
+              borderRadius: "4px",
             }}
           >
-            Ready for Booking
+            {isBatch ? `BATCH (${batchTxns.length})` : txn.requestId}
           </span>
         </div>
 
-        {isMulti && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "0.5rem 1rem",
+            fontSize: "11px",
+            backgroundColor: "#f8fafc",
+            padding: "0.75rem",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <div>
+            <span style={{ color: "#94a3b8" }}>Vendor:</span> <strong>{txn.vendor.name}</strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8" }}>Program:</span>{" "}
+            <strong style={{ color: "#047857" }}>{txn.program.name}</strong>
+          </div>
+          {isBatch ? (
+            <>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Invoices:</span>{" "}
+                <strong>{batchTxns.length} Invoices in Case</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Total Invoice Amount:</span>{" "}
+                <strong style={{ color: "#0f172a" }}>
+                  {txn.invoice.currency} {totalAmount.toLocaleString("en-US")}
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Total Discount Amount:</span>{" "}
+                <strong style={{ color: "#047857" }}>
+                  {txn.invoice.currency} {totalDiscount.toLocaleString("en-US")}
+                </strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Invoice #:</span>{" "}
+                <strong>{txn.invoice.number}</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Date:</span> <strong>{txn.invoice.date}</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Invoice Amount:</span>{" "}
+                <strong style={{ color: "#0f172a" }}>
+                  {txn.invoice.currency} {Number(txn.invoice.amount).toLocaleString("en-US")}
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Discount Amount:</span>{" "}
+                <strong style={{ color: "#047857" }}>
+                  {txn.invoice.currency} {Number(txn.invoice.discountAmount).toLocaleString("en-US")}
+                </strong>
+              </div>
+            </>
+          )}
+        </div>
+
+        {isBatch && (
           <div
             style={{
-              padding: "0.75rem",
-              backgroundColor: "#ffffff",
-              border: "1px solid #d1fae5",
-              borderRadius: "0.75rem",
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "0.5rem",
-              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.35rem",
+              marginTop: "0.25rem",
             }}
           >
-            <div>
-              <span
+            <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>
+              Invoices included in this Case:
+            </span>
+            {batchTxns.map((t) => (
+              <div
+                key={t.requestId}
                 style={{
-                  fontSize: "9px",
-                  color: "#94a3b8",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  display: "block",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  backgroundColor: "#f8fafc",
+                  padding: "0.35rem 0.5rem",
+                  borderRadius: "0.375rem",
+                  fontSize: "11px",
+                  border: "1px solid #f1f5f9",
                 }}
               >
-                Total Invoices
-              </span>
-              <span style={{ fontSize: "0.875rem", fontWeight: "900", color: "#0f172a" }}>
-                {loansList.length}
-              </span>
-            </div>
-            <div>
-              <span
-                style={{
-                  fontSize: "9px",
-                  color: "#94a3b8",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  display: "block",
-                }}
-              >
-                Total Amount
-              </span>
-              <span style={{ fontSize: "0.875rem", fontWeight: "900", color: "#0f172a" }}>
-                ${totalInvoiceAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div>
-              <span
-                style={{
-                  fontSize: "9px",
-                  color: "#94a3b8",
-                  fontWeight: "bold",
-                  textTransform: "uppercase",
-                  display: "block",
-                }}
-              >
-                Est. Disbursement
-              </span>
-              <span style={{ fontSize: "0.875rem", fontWeight: "900", color: "#047857" }}>
-                ${totalDisbursement.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-              </span>
-            </div>
+                <div>
+                  <strong>#{t.invoice.number}</strong> • {t.invoice.date}
+                </div>
+                <div style={{ color: "#004831", fontWeight: "600" }}>
+                  {t.invoice.currency} {Number(t.invoice.amount).toLocaleString("en-US")}
+                  {t.invoice.discountAmount !== null && (
+                    <span style={{ color: "#047857", marginLeft: "0.5rem" }}>
+                      (Disc: {t.invoice.currency}{" "}
+                      {Number(t.invoice.discountAmount).toLocaleString("en-US")})
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.625rem",
-            maxHeight: "18rem",
-            overflowY: "auto",
-            paddingRight: "0.25rem",
-          }}
-        >
-          {loansList.map((loanItem, idx) => {
-            const invAmt = parseFloat(
-              loanItem["Invoice Amount"] ||
-                loanItem.invoice_amount ||
-                loanItem.InvoiceAmount ||
-                loanItem.invoiceAmount ||
-                0
-            );
-            const discAmt = parseFloat(
-              loanItem["Discount Amount"] ||
-                loanItem.discount_amount ||
-                loanItem.DiscountAmount ||
-                loanItem.discountAmount ||
-                0
-            );
-            const procFee = parseFloat(loanItem["Processing Fee"] || loanItem.processing_fee || 0);
-            const platFee = parseFloat(loanItem["Platform Fee"] || loanItem.platform_fee || 0);
-            const txnId =
-              loanItem["Transaction ID"] || loanItem.transaction_id || `TXN-SCF-2026-${901 + idx}`;
-
-            return (
-              <div
-                key={idx}
-                style={{
-                  padding: "0.75rem",
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "0.75rem",
-                  fontSize: "0.75rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.5rem",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    borderBottom: "1px solid #f1f5f9",
-                    paddingBottom: "0.375rem",
-                  }}
-                >
-                  <span style={{ fontWeight: "bold", color: "#004831" }}>
-                    Invoice #
-                    {loanItem["Invoice Number"] ||
-                      loanItem.invoice_number ||
-                      loanItem.InvoiceNumber ||
-                      loanItem.invoiceNumber ||
-                      `INV-2026-${8812 + idx}`}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      fontFamily: "monospace",
-                      fontWeight: "bold",
-                      backgroundColor: "#f1f5f9",
-                      color: "#334155",
-                      padding: "0.125rem 0.5rem",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Txn ID: {txnId}
-                  </span>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "4px 12px",
-                    fontSize: "11px",
-                  }}
-                >
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Vendor:</span>{" "}
-                    <span style={{ fontWeight: "600", color: "#1e293b" }}>
-                      {loanItem["Vendor Name"] ||
-                        loanItem.vendor_name ||
-                        loanItem.VendorName ||
-                        loanItem.vendorName ||
-                        loanItem["Spoke Name"] ||
-                        loanItem.SpokeName ||
-                        loanItem["Spoke Code"] ||
-                        loanItem.spokeCode ||
-                        loanItem.anchorcode ||
-                        loanItem.anchorCode ||
-                        loanItem.AnchorCode ||
-                        "Vendor 1"}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Date:</span>{" "}
-                    <span style={{ fontWeight: "600", color: "#1e293b" }}>
-                      {loanItem["Invoice Date"] ||
-                        loanItem.invoice_date ||
-                        loanItem.InvoiceDate ||
-                        loanItem.invoiceDate ||
-                        "N/A"}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Invoice Amount:</span>{" "}
-                    <span style={{ fontWeight: "bold", color: "#0f172a" }}>
-                      ${invAmt.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Discount:</span>{" "}
-                    <span style={{ fontWeight: "600", color: "#1e293b" }}>
-                      ${discAmt.toFixed(2)}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Specific Fees:</span>{" "}
-                    <span style={{ fontWeight: "bold", color: "#b45309" }}>
-                      Proc: ${procFee} | Plat: ${platFee}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>Program:</span>{" "}
-                    <span style={{ fontWeight: "bold", color: "#047857" }}>
-                      {loanItem["Program ID"] ||
-                        loanItem.program_id ||
-                        loanItem["Program Name"] ||
-                        loanItem.programName ||
-                        loanItem.programname ||
-                        "N/A"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <button
-          onClick={() => handleConfirmLoan(data)}
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            backgroundColor: "#004831",
-            color: "#ffffff",
-            borderRadius: "0.75rem",
-            fontWeight: "bold",
-            fontSize: "0.875rem",
-            border: "none",
-            cursor: "pointer",
-            marginTop: "0.5rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-          }}
-        >
-          <CheckCircle2 size={18} />
-          {isMulti ? `Confirm & Book All ${loansList.length} Loans` : "Confirm & Submit Request"}
-        </button>
+        {!isConfirmed && (
+          <button
+            type="button"
+            onClick={() => handleConfirmLoan(txn.requestId)}
+            disabled={isLoading}
+            style={{
+              padding: "0.75rem",
+              backgroundColor: "#004831",
+              color: "#ffffff",
+              borderRadius: "0.625rem",
+              fontWeight: "700",
+              fontSize: "12px",
+              border: "none",
+              cursor: isLoading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.5rem",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            }}
+          >
+            <CheckCircle2 size={16} /> Confirm & Initiate Work Item
+            {isBatch ? ` (${batchTxns.length} Invoices)` : ""}
+          </button>
+        )}
       </div>
     );
   };
 
-  const handleConfirmLoan = async (data) => {
-    setIsLoading(true);
-    const rawLoans =
-      data.loans ||
-      (data.data
-        ? Array.isArray(data.data)
-          ? data.data
-          : [data.data]
-        : Array.isArray(data)
-        ? data
-        : [data]);
-    const loansList = rawLoans.filter(Boolean);
+  /**
+   * Render OTP Verification Card
+   * Strictly bound to requestId and rejects hardcoded bypasses.
+   */
+  const renderOtpCard = (requestId) => {
+    const txn = transactions[requestId] || transactions[activeRequestId];
+    if (!txn || txn.status !== TRANSACTION_STATES.OTP_PENDING) return null;
 
-    const firstLoan = loansList[0] || data.data || data;
-    const anchorcode =
-      firstLoan["Vendor Name"] ||
-      firstLoan.vendor_name ||
-      firstLoan.VendorName ||
-      firstLoan.vendorName ||
-      firstLoan["Spoke Name"] ||
-      firstLoan.SpokeName ||
-      firstLoan["Spoke Code"] ||
-      firstLoan.spokeCode ||
-      firstLoan.anchorcode ||
-      firstLoan.anchorCode ||
-      firstLoan.AnchorCode ||
-      "";
-    const programname =
-      firstLoan["Program ID"] ||
-      firstLoan.program_id ||
-      firstLoan["Program Name"] ||
-      firstLoan.programName ||
-      "";
-
-    const invoiceDetais = loansList.map((item, idx) => ({
-      invoiceNumber:
-        item["Invoice Number"] || item.invoice_number || item.InvoiceNumber || `INV-${idx}`,
-      invoiceAmount: String(
-        item["Invoice Amount"] || item.invoice_amount || item.InvoiceAmount || "0"
-      ),
-      invoiceDate: item["Invoice Date"] || item.invoice_date || item.InvoiceDate || "",
-      vendorCode:
-        item["Spoke Code"] ||
-        item.spoke_code ||
-        item.vendorCode ||
-        item.vendor_code ||
-        "VEN0001042",
-      anchorCode: item["Anchor Code"] || item.anchor_code || item.anchorCode || "BUY0003335",
-      vendorAccNum:
-        item["Account Number"] || item.account_number || item.vendorAccNum || "9928340192",
-      vendorEmailId:
-        item["EmailID"] || item.email_id || item.vendorEmailId || "vendor1@finance.com",
-      discountAmount: String(
-        item["Discount Amount"] || item.discount_amount || item.DiscountAmount || "0"
-      ),
-    }));
-
-    try {
-      // Call createWorkItemInvoiceChatbotMessage API
-      const { wiName, folderIndex } = await createWorkItem({
-        anchorcode,
-        programname,
-        invoiceDetais,
-      });
-
-      const processedLoans = loansList.map((item, idx) => {
-        const invAmt = parseFloat(
-          item["Invoice Amount"] || item.invoice_amount || item.InvoiceAmount || 0
-        );
-        return {
-          invoiceNumber: item["Invoice Number"] || item.invoice_number || `INV-${idx}`,
-          invoiceDate: item["Invoice Date"] || item.invoice_date || "",
-          invoiceAmount: invAmt,
-          vendorName: item["Vendor Name"] || item.vendor_name || item["Spoke Code"] || "",
-          programName: item["Program ID"] || item.program_id || item["Program Name"] || "",
-          discountAmount: String(item["Discount Amount"] || item.discount_amount || "0"),
-          vendorCode: item["Spoke Code"] || item.spoke_code || item.vendorCode || "VEN0001042",
-          anchorCode: item["Anchor Code"] || item.anchor_code || "BUY0003335",
-          vendorAccNum: item["Account Number"] || item.account_number || "9928340192",
-          vendorEmailId: item["EmailID"] || item.email_id || "vendor1@finance.com",
-        };
-      });
-
-      const isMulti = processedLoans.length > 1;
-
-      const assistantMessage = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: `The loan request for ${anchorcode} under program ${programname} has been successfully initiated with the provided invoice details.\n\nTo proceed with booking ${
-          isMulti ? `all ${processedLoans.length} loans` : "the loan"
-        }, we've sent a 6-digit OTP to your registered mobile number and email. Please enter it below to confirm.`,
-        timestamp: new Date(),
-        data: {
-          type: "LOAN_OTP_REQUIRED",
-          originalRequestId: isMulti
-            ? "BATCH_MULTI_LOAN"
-            : processedLoans[0]?.invoiceNumber || "INV-SINGLE",
-          loansList: processedLoans,
-          fullData: data,
-          wiName: wiName,
-          folderIndex: folderIndex,
-          anchorcode: anchorcode,
-          programname: programname,
-          invoiceDetais: invoiceDetais,
-        },
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error("Create Work Item Error:", error);
-      const errorMessage = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: `⚠️ Failed to initiate loan request: ${error.message || "Please try again."}`,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const renderLoanOTP = (data) => {
-    const isConfirmed = messages.some(
-      (m) =>
-        m.data?.type === "LOAN_CONFIRMED" && m.data.originalRequestId === data.originalRequestId
-    );
-    if (isConfirmed) return null;
-
-    const loansList = data.loansList || [];
-    const isMulti = loansList.length > 1;
+    const currentOtp = otpInputs[requestId] || "";
+    const batchTxns = txn.batchId
+      ? Object.values(transactions).filter((t) => t.batchId === txn.batchId)
+      : [txn];
+    const isBatch = batchTxns.length > 1;
 
     return (
       <div
         style={{
-          marginTop: "1rem",
-          padding: "1.25rem",
+          marginTop: "0.75rem",
+          padding: "1.125rem",
           backgroundColor: "#fffbeb",
           border: "1px solid #fde68a",
-          borderRadius: "1rem",
+          borderRadius: "0.875rem",
           display: "flex",
           flexDirection: "column",
-          gap: "1rem",
+          gap: "0.75rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", color: "#92400e" }}>
-          <div
-            style={{
-              width: "2.5rem",
-              height: "2.5rem",
-              backgroundColor: "#fef3c7",
-              borderRadius: "9999px",
-              display: "flex",
-              alignItems: "center",
-              justifyCenter: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Terminal size={20} />
-          </div>
-          <div>
-            <h4 style={{ fontWeight: "bold", fontSize: "0.875rem", margin: 0 }}>
-              Security Verification
-            </h4>
-            <p
-              style={{
-                fontSize: "10px",
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                fontWeight: "900",
-                opacity: 0.7,
-                margin: 0,
-              }}
-            >
-              {isMulti
-                ? `Confirming Batch Booking (${loansList.length} Loans)`
-                : "Enter 6-Digit OTP Sent via SMS & Email"}
-            </p>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#92400e" }}>
+          <AlertCircle size={18} />
+          <span style={{ fontWeight: "700", fontSize: "12px" }}>
+            OTP Authorization Required ({txn.workItem?.wiName || txn.requestId})
+          </span>
         </div>
 
-        <div style={{ display: "flex", gap: "0.5rem", justifyContent: "space-between" }}>
+        <p style={{ margin: 0, fontSize: "11px", color: "#78350f" }}>
+          A 6-digit confirmation code was sent to your registered channel for Work Item{" "}
+          <strong>{txn.workItem?.wiName}</strong>
+          {isBatch ? ` (${batchTxns.length} Invoices)` : ""}. Please enter it to complete booking:
+        </p>
+
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <input
             type="text"
             maxLength={6}
-            value={otpValue}
-            onChange={(e) => setOtpValue(e.target.value.replace(/\D/g, ""))}
-            placeholder="000000"
+            value={currentOtp}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, "");
+              setOtpInputs((prev) => ({ ...prev, [requestId]: val }));
+            }}
+            placeholder="Enter 6-Digit OTP"
             style={{
-              flex: 1,
-              backgroundColor: "#ffffff",
-              border: "2px solid #fde68a",
-              borderRadius: "0.75rem",
-              padding: "0.75rem 1rem",
+              padding: "0.625rem 0.875rem",
+              borderRadius: "0.5rem",
+              border: "1px solid #d97706",
+              fontSize: "13px",
+              fontWeight: "700",
+              letterSpacing: "0.2em",
               textAlign: "center",
-              fontSize: "1.25rem",
-              fontWeight: "900",
-              letterSpacing: "0.5em",
+              width: "180px",
               outline: "none",
+              backgroundColor: "#ffffff",
             }}
           />
-        </div>
 
-        <button
-          onClick={() => handleVerifyOTP(data)}
-          disabled={otpValue.length !== 6 || isLoading}
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            backgroundColor: "#d97706",
-            opacity: otpValue.length !== 6 || isLoading ? 0.5 : 1,
-            color: "#ffffff",
-            borderRadius: "0.75rem",
-            fontWeight: "bold",
-            fontSize: "0.875rem",
-            border: "none",
-            cursor: otpValue.length !== 6 || isLoading ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-          }}
-        >
-          {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-          {isMulti ? `Verify & Book All ${loansList.length} Loans` : "Verify & Confirm Loan"}
-        </button>
-
-        <p
-          style={{
-            fontSize: "10px",
-            color: "#b45309",
-            textAlign: "center",
-            fontWeight: "500",
-            margin: 0,
-          }}
-        >
-          {"Didn't receive the code? "}
           <button
             type="button"
-            onClick={() => alert("Resent OTP code: 123456")}
+            onClick={() => handleVerifyOTP(requestId)}
+            disabled={currentOtp.length !== 6 || isLoading}
             style={{
-              textDecoration: "underline",
-              fontWeight: "bold",
-              background: "none",
+              padding: "0.625rem 1rem",
+              backgroundColor: "#004831",
+              color: "#ffffff",
+              borderRadius: "0.5rem",
+              fontWeight: "700",
+              fontSize: "12px",
               border: "none",
-              cursor: "pointer",
-              color: "#78350f",
+              cursor: currentOtp.length !== 6 || isLoading ? "not-allowed" : "pointer",
+              opacity: currentOtp.length !== 6 || isLoading ? 0.6 : 1,
             }}
           >
-            Resend OTP
+            Verify & Book Loan
           </button>
-        </p>
+        </div>
       </div>
     );
   };
 
-  const handleVerifyOTP = async (data) => {
-    if (otpValue !== "000000") {
-      alert("Invalid OTP. Please enter the correct 6-digit OTP.");
-      return;
-    }
-
-    setIsLoading(true);
-    const {
-      loansList,
-      fullData,
-      originalRequestId,
-      wiName,
-      folderIndex,
-      anchorcode,
-      programname,
-      invoiceDetais,
-    } = data;
-
-    const firstLoan = loansList?.[0] || {};
-    const effectiveAnchorCode =
-      anchorcode ||
-      firstLoan.vendorName ||
-      firstLoan["Vendor Name"] ||
-      firstLoan.vendor_name ||
-      firstLoan.VendorName ||
-      firstLoan["Spoke Name"] ||
-      firstLoan.SpokeName ||
-      firstLoan["Spoke Code"] ||
-      firstLoan.spokeCode ||
-      firstLoan.anchorcode ||
-      firstLoan.anchorCode ||
-      firstLoan.AnchorCode ||
-      "";
-    const effectiveProgramName =
-      programname || firstLoan.programName || firstLoan["Program ID"] || "";
-
-    const effectiveInvoiceDetails =
-      invoiceDetais ||
-      (loansList || []).map((item, idx) => ({
-        invoiceNumber: item.invoiceNumber || item["Invoice Number"] || `INV-${idx}`,
-        invoiceAmount: String(item.invoiceAmount || item["Invoice Amount"] || "0"),
-        invoiceDate: item.invoiceDate || item["Invoice Date"] || "",
-        vendorCode: item.vendorCode || item["Spoke Code"] || "VEN0001042",
-        anchorCode: item.anchorCode || item["Anchor Code"] || "BUY0003335",
-        vendorAccNum: item.vendorAccNum || item["Account Number"] || "9928340192",
-        vendorEmailId: item.vendorEmailId || item["EmailID"] || "vendor1@finance.com",
-        discountAmount: String(item.discountAmount || item["Discount Amount"] || "0"),
-      }));
-
-    try {
-      // Call LoanBooking API
-      await bookLoan({
-        anchorcode: effectiveAnchorCode,
-        programname: effectiveProgramName,
-        wiName: wiName || "",
-        folderIndex: folderIndex || "",
-        invoiceDetais: effectiveInvoiceDetails,
-      });
-
-      const assistantMessage = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: `OTP Verified! Success! ${
-          loansList?.length > 1 ? `All ${loansList.length} loans have` : "Your loan has"
-        } been booked and processed. Transaction receipts and loan accounts have been activated with Loan number-${wiName}`,
-        timestamp: new Date(),
-        data: {
-          type: "LOAN_CONFIRMED",
-          originalRequestId: originalRequestId,
-          fullData: fullData,
-          loansList: loansList,
-          wiName: wiName,
-          folderIndex: folderIndex,
-        },
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      setOtpValue("");
-    } catch (error) {
-      console.error("Loan Booking Error:", error);
-      const errorMessage = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: `⚠️ Loan booking failed: ${error.message || "Please try again."}`,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+  /**
+   * Render Batch Document Invoices Card
+   */
+  const renderBatchExtractedCard = (requestIds) => {
+    return (
+      <div
+        style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}
+      >
+        {requestIds.map((rId) => {
+          const t = transactions[rId];
+          if (!t) return null;
+          return (
+            <div
+              key={rId}
+              style={{
+                padding: "0.75rem",
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "0.5rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: "11px",
+              }}
+            >
+              <div>
+                <strong>Invoice #{t.invoice.number || "Unspecified"}</strong> •{" "}
+                {t.vendor.name || "Vendor"}
+                <div style={{ color: "#64748b", fontSize: "10px" }}>
+                  Amount: {t.invoice.currency} {Number(t.invoice.amount).toLocaleString("en-US")} |
+                  Disc:{" "}
+                  {t.invoice.discountAmount !== null
+                    ? `${t.invoice.currency} ${Number(t.invoice.discountAmount).toLocaleString(
+                        "en-US"
+                      )}`
+                    : "Missing"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveRequestId(rId)}
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  backgroundColor: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  color: "#065f46",
+                  borderRadius: "4px",
+                  fontSize: "10px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                }}
+              >
+                Review
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderContent = () => (
@@ -1360,7 +1307,7 @@ export function AskAIChatbot({
                   letterSpacing: "-0.01em",
                 }}
               >
-                SCFAgentic AI Assistant
+                SCFAgentic AI Assistant (Nexus AI)
               </h3>
               {isLoading && (
                 <span
@@ -1405,7 +1352,7 @@ export function AskAIChatbot({
               ></span>
               {isLoading
                 ? `Reasoning (Step ${loadingStage + 1}/4 • ${loadingSeconds.toFixed(1)}s)...`
-                : "Online • Supply Chain Finance Intelligence"}
+                : `Active ID: ${activeRequestId} • Trusted SCF Agent`}
             </p>
           </div>
         </div>
@@ -1455,6 +1402,9 @@ export function AskAIChatbot({
           </div>
         )}
       </div>
+
+      {/* Multi-Transaction Tab Bar */}
+      {renderTransactionBar()}
 
       {/* Messages */}
       <div
@@ -1512,72 +1462,9 @@ export function AskAIChatbot({
                 marginBottom: "1.5rem",
               }}
             >
-              Ask me about invoice financing, settlement status, loan booking for vendors, or upload
-              an invoice PDF to auto-extract details.
+              Ask me about invoice financing, settlement status, loan booking, or upload an invoice
+              PDF to extract real values.
             </p>
-            <div
-              style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "center" }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleSendMessage(
-                        undefined,
-                        undefined,
-                        `Finance invoice for ${e.target.value}`
-                      );
-                      e.target.value = "";
-                    }
-                  }}
-                  style={{
-                    padding: "0.5rem 0.875rem",
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "9999px",
-                    fontSize: "0.75rem",
-                    fontWeight: "600",
-                    color: "#334155",
-                    cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-                    outline: "none",
-                  }}
-                >
-                  <option value="" disabled>
-                    Finance invoice for…
-                  </option>
-                  {[...new Set(SCF_DUMMY_DATA.spokeDetails.map((s) => s.SpokeName))].map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {[
-                "Show settlements status",
-                "Check invoice discrepancy",
-                "What programs are active?",
-              ].map((suggestion, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendMessage(undefined, undefined, suggestion)}
-                  style={{
-                    padding: "0.5rem 0.875rem",
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #cbd5e1",
-                    borderRadius: "9999px",
-                    fontSize: "0.75rem",
-                    fontWeight: "600",
-                    color: "#334155",
-                    cursor: "pointer",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1588,6 +1475,7 @@ export function AskAIChatbot({
               display: "flex",
               flexDirection: "column",
               alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+              animation: "fadeIn 0.2s ease",
             }}
           >
             <div
@@ -1645,9 +1533,16 @@ export function AskAIChatbot({
                     <span>{msg.fileInfo.name}</span>
                   </div>
                 )}
-                {msg.data?.type === "CLARIFICATION" && renderClarification(msg.data)}
-                {msg.data?.type === "LOAN_REQUEST" && renderLoanRequest(msg.data)}
-                {msg.data?.type === "LOAN_OTP_REQUIRED" && renderLoanOTP(msg.data)}
+                {/* Clarification Card */}
+                {msg.data?.type === "CLARIFICATION" && renderClarificationCard(msg.data.requestId)}
+                {/* Confirmation Card */}
+                {msg.data?.type === "LOAN_REQUEST_CONFIRMATION" &&
+                  renderConfirmationCard(msg.data.requestId)}
+                {/* OTP Interface */}
+                {msg.data?.type === "LOAN_OTP_REQUIRED" && renderOtpCard(msg.data.requestId)}
+                {/* Batch Extracted Invoices */}
+                {msg.data?.type === "DOCUMENT_BATCH_EXTRACTED" &&
+                  renderBatchExtractedCard(msg.data.requestIds)}
               </div>
             </div>
             <span
@@ -1685,7 +1580,6 @@ export function AskAIChatbot({
               animation: "fadeIn 0.3s ease",
             }}
           >
-            {/* Top row: Avatar, Engine Title, Live Stopwatch */}
             <div
               style={{
                 display: "flex",
@@ -1737,7 +1631,6 @@ export function AskAIChatbot({
                 </div>
               </div>
 
-              {/* Live Stopwatch Badge */}
               <div
                 style={{
                   display: "flex",
@@ -1756,7 +1649,6 @@ export function AskAIChatbot({
               </div>
             </div>
 
-            {/* Current Active Stage Description with Bouncing Dots */}
             <div
               style={{
                 padding: "0.75rem 1rem",
@@ -1790,7 +1682,6 @@ export function AskAIChatbot({
                 </div>
               </div>
 
-              {/* Bouncing Dots */}
               <div style={{ display: "flex", gap: "4px", alignItems: "center", shrink: 0 }}>
                 <span
                   style={{
@@ -1822,7 +1713,6 @@ export function AskAIChatbot({
               </div>
             </div>
 
-            {/* 4-Step Progress Indicator */}
             <div
               style={{
                 display: "grid",
