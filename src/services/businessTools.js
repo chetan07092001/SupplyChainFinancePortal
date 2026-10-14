@@ -148,7 +148,9 @@ export async function createLoanWorkItemTool({ transaction, batchTransactions = 
       throw new Error(
         `Cannot create work item: invoice ${
           txn.invoice?.number || txn.requestId
-        } missing fields [${validation.missingFields.join(", ")}] or errors [${validation.validationErrors.join(", ")}]`
+        } missing fields [${validation.missingFields.join(
+          ", "
+        )}] or errors [${validation.validationErrors.join(", ")}]`
       );
     }
   }
@@ -316,9 +318,7 @@ export async function bookLoanTool({ transaction, batchTransactions = [] }) {
   });
 
   try {
-    const bookingTxns = allTxns.map((t) =>
-      transitionTransaction(t, TRANSACTION_STATES.BOOKING)
-    );
+    const bookingTxns = allTxns.map((t) => transitionTransaction(t, TRANSACTION_STATES.BOOKING));
 
     const result = await bookLoan({
       anchorcode: vendor.name || vendor.code || anchor.code || "",

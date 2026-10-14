@@ -456,6 +456,26 @@ export function AskAIChatbot({
         } else if (progError) {
           responseContent = `⚠️ Could not retrieve programs for **${effectiveVendor}**: ${progError}`;
         }
+      } else if (responseType === "LOAN_REQUEST_CONFIRMATION" && mergedTxn.batchId) {
+        const batchSiblings = Object.values(transactions).filter(
+          (t) => t.batchId === mergedTxn.batchId
+        );
+        if (batchSiblings.length > 1) {
+          const totalAmt = batchSiblings.reduce(
+            (sum, t) => sum + (Number(t.invoice?.amount) || 0),
+            0
+          );
+          const cur = mergedTxn.invoice.currency;
+          const amtStr = totalAmt.toLocaleString("en-US");
+          const vName = mergedTxn.vendor.name;
+          const pName = mergedTxn.program.name;
+          const count = batchSiblings.length;
+          responseContent =
+            `I have verified all ${count} extracted invoices for **${vName}** ` +
+            `under program **${pName}** (Total Amount: ${cur} ${amtStr}). ` +
+            `They will be submitted together in a single work item case. ` +
+            `Please review the details below and click Confirm to initiate.`;
+        }
       }
 
       logChatbot("RESPONSE", {
@@ -618,10 +638,7 @@ export function AskAIChatbot({
       // Clear input
       setOtpInputs((prev) => ({ ...prev, [requestId]: "" }));
 
-      const totalAmount = batchTxns.reduce(
-        (sum, t) => sum + (Number(t.invoice?.amount) || 0),
-        0
-      );
+      const totalAmount = batchTxns.reduce((sum, t) => sum + (Number(t.invoice?.amount) || 0), 0);
       const isMulti = batchTxns.length > 1;
 
       const successMsg = {
@@ -633,9 +650,9 @@ export function AskAIChatbot({
           txn.vendor.name || ""
         }** (${
           isMulti
-            ? `Total for ${batchTxns.length} invoices: ${txn.invoice.currency} ${totalAmount.toLocaleString(
-                "en-US"
-              )}`
+            ? `Total for ${batchTxns.length} invoices: ${
+                txn.invoice.currency
+              } ${totalAmount.toLocaleString("en-US")}`
             : `Amount: ${txn.invoice.currency} ${Number(txn.invoice.amount).toLocaleString(
                 "en-US"
               )}`
@@ -766,6 +783,17 @@ export function AskAIChatbot({
     const txn = transactions[requestId] || transactions[activeRequestId];
     if (!txn) return null;
 
+    const batchTxns = txn.batchId
+      ? Object.values(transactions).filter((t) => t.batchId === txn.batchId)
+      : [txn];
+    const isBatch = batchTxns.length > 1;
+
+    const totalAmount = batchTxns.reduce((sum, t) => sum + (Number(t.invoice?.amount) || 0), 0);
+    const totalDiscount = batchTxns.reduce(
+      (sum, t) => sum + (Number(t.invoice?.discountAmount) || 0),
+      0
+    );
+
     const missing = txn.missingFields || [];
     const availableProgs = txn.program.availablePrograms || [];
 
@@ -783,8 +811,10 @@ export function AskAIChatbot({
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>
-            TRANSACTION: {txn.requestId}
+          <span style={{ fontSize: "11px", fontWeight: "700", color: "#004831" }}>
+            {isBatch
+              ? `BATCH CASE: ${batchTxns.length} Invoices for ${txn.vendor.name || "Vendor"}`
+              : `TRANSACTION: ${txn.requestId}`}
           </span>
           <span style={{ fontSize: "10px", color: "#059669", fontWeight: "600" }}>
             Status: {txn.status.replace(/_/g, " ")}
@@ -809,38 +839,106 @@ export function AskAIChatbot({
             <strong>{txn.vendor.name || "Missing"}</strong>
           </div>
           <div>
-            <span style={{ color: "#94a3b8" }}>Invoice #:</span>{" "}
-            <strong>{txn.invoice.number || "Missing"}</strong>
-          </div>
-          <div>
-            <span style={{ color: "#94a3b8" }}>Date:</span>{" "}
-            <strong>{txn.invoice.date || "Missing"}</strong>
-          </div>
-          <div>
-            <span style={{ color: "#94a3b8" }}>Amount:</span>{" "}
-            <strong>
-              {txn.invoice.amount !== null
-                ? `${txn.invoice.currency} ${Number(txn.invoice.amount).toLocaleString("en-US")}`
-                : "Missing"}
-            </strong>
-          </div>
-          <div>
-            <span style={{ color: "#94a3b8" }}>Discount:</span>{" "}
-            <strong>
-              {txn.invoice.discountAmount !== null
-                ? `${txn.invoice.currency} ${Number(txn.invoice.discountAmount).toLocaleString(
-                    "en-US"
-                  )}`
-                : "Missing"}
-            </strong>
-          </div>
-          <div>
             <span style={{ color: "#94a3b8" }}>Program:</span>{" "}
             <strong style={{ color: txn.program.name ? "#047857" : "#dc2626" }}>
               {txn.program.name || "Missing"}
             </strong>
           </div>
+          {isBatch ? (
+            <>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Invoices:</span>{" "}
+                <strong>{batchTxns.length} Invoices in Case</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Total Invoice Amount:</span>{" "}
+                <strong style={{ color: "#0f172a" }}>
+                  {txn.invoice.currency} {totalAmount.toLocaleString("en-US")}
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Total Discount:</span>{" "}
+                <strong style={{ color: "#047857" }}>
+                  {txn.invoice.currency} {totalDiscount.toLocaleString("en-US")}
+                </strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Invoice #:</span>{" "}
+                <strong>{txn.invoice.number || "Missing"}</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Date:</span>{" "}
+                <strong>{txn.invoice.date || "Missing"}</strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Amount:</span>{" "}
+                <strong>
+                  {txn.invoice.amount !== null
+                    ? `${txn.invoice.currency} ${Number(txn.invoice.amount).toLocaleString(
+                        "en-US"
+                      )}`
+                    : "Missing"}
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "#94a3b8" }}>Discount:</span>{" "}
+                <strong>
+                  {txn.invoice.discountAmount !== null
+                    ? `${txn.invoice.currency} ${Number(txn.invoice.discountAmount).toLocaleString(
+                        "en-US"
+                      )}`
+                    : "Missing"}
+                </strong>
+              </div>
+            </>
+          )}
         </div>
+
+        {isBatch && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.35rem",
+              marginTop: "0.25rem",
+            }}
+          >
+            <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569" }}>
+              Invoices included in this Case:
+            </span>
+            {batchTxns.map((t) => (
+              <div
+                key={t.requestId}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  backgroundColor: "#ffffff",
+                  padding: "0.35rem 0.5rem",
+                  borderRadius: "0.375rem",
+                  fontSize: "11px",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <div>
+                  <strong>#{t.invoice.number}</strong> • {t.invoice.date}
+                </div>
+                <div style={{ color: "#004831", fontWeight: "600" }}>
+                  {t.invoice.currency} {Number(t.invoice.amount).toLocaleString("en-US")}
+                  {t.invoice.discountAmount !== null && (
+                    <span style={{ color: "#047857", marginLeft: "0.5rem" }}>
+                      (Disc: {t.invoice.currency}{" "}
+                      {Number(t.invoice.discountAmount).toLocaleString("en-US")})
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Missing fields alert */}
         {missing.length > 0 && (
@@ -920,10 +1018,7 @@ export function AskAIChatbot({
       : [txn];
     const isBatch = batchTxns.length > 1;
 
-    const totalAmount = batchTxns.reduce(
-      (sum, t) => sum + (Number(t.invoice?.amount) || 0),
-      0
-    );
+    const totalAmount = batchTxns.reduce((sum, t) => sum + (Number(t.invoice?.amount) || 0), 0);
     const totalDiscount = batchTxns.reduce(
       (sum, t) => sum + (Number(t.invoice?.discountAmount) || 0),
       0
@@ -1016,7 +1111,8 @@ export function AskAIChatbot({
               <div>
                 <span style={{ color: "#94a3b8" }}>Discount Amount:</span>{" "}
                 <strong style={{ color: "#047857" }}>
-                  {txn.invoice.currency} {Number(txn.invoice.discountAmount).toLocaleString("en-US")}
+                  {txn.invoice.currency}{" "}
+                  {Number(txn.invoice.discountAmount).toLocaleString("en-US")}
                 </strong>
               </div>
             </>
