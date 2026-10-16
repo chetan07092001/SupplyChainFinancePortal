@@ -41,7 +41,9 @@ import {
   createLoanWorkItemTool,
   verifyLoanOtpTool,
   bookLoanTool,
+  fetchTransactionInformationTool,
 } from "../../services/businessTools";
+import { getCurrentPersona } from "../../services/scfApiService";
 
 const REASONING_STAGES = [
   {
@@ -89,6 +91,14 @@ export function AskAIChatbot({
   const [isRecording, setIsRecording] = useState(false);
   const [permissionError, setPermissionError] = useState(null);
   const [attachedFile, setAttachedFile] = useState(null);
+  // Transaction Information Inquiry Context (Multi-turn parameter collection)
+  const [txnInquiryContext, setTxnInquiryContext] = useState({
+    active: false,
+    ordering: null,
+    limit: null,
+    vendorCode: null,
+    program: null,
+  });
 
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -349,6 +359,255 @@ export function AskAIChatbot({
           },
         };
         setMessages((prev) => [...prev, assistantMsg]);
+        setIsLoading(false);
+        return;
+      }
+
+      // CASE T: Transaction Information Inquiry & Multi-Turn Parameter Routing
+      const isTxnInquiry =
+        result.type === "TRANSACTION_INQUIRY" ||
+        txnInquiryContext.active ||
+        (/\b(transaction|transactions|txn|txns)\b/i.test(displayContent) &&
+          !/\b(finance|upload|invoice|book\s*loan|discount)\b/i.test(displayContent));
+
+      if (isTxnInquiry) {
+        let currentPersona = null;
+        try {
+          currentPersona = getCurrentPersona();
+        } catch (err) {
+          const assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: `⚠️ Unable to determine the logged-in user's persona from local storage: ${err.message}. Please ensure you are logged in as Anchor or Vendor.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+          setIsLoading(false);
+          return;
+        }
+
+        const candidateOrdering = result.entities?.ordering || null;
+        const candidateLimit = result.entities?.limit || null;
+        const candidateVendorCode = result.entities?.vendorCode || null;
+        const candidateProgram = result.entities?.program || result.entities?.programName || null;
+
+        // Inspect trusted context for existing values
+        const existingVendorCode =
+          candidateVendorCode ||
+          txnInquiryContext.vendorCode ||
+          transactions[activeRequestId]?.vendor?.code ||
+          localStorage.getItem("vendorCode") ||
+          null;
+
+        const effectiveProgram = candidateProgram || txnInquiryContext.program || null;
+
+        const mergedInquiry = {
+          active: true,
+          ordering: candidateOrdering || txnInquiryContext.ordering || null,
+          limit: candidateLimit || txnInquiryContext.limit || null,
+          vendorCode: currentPersona === "vendor" ? existingVendorCode : null,
+          program: currentPersona === "vendor" ? effectiveProgram : null,
+        };
+
+        if (currentPersona === "anchor") {
+          const missingAnchor = [];
+          if (!mergedInquiry.ordering) missingAnchor.push("ordering");
+          if (!mergedInquiry.limit) missingAnchor.push("limit");
+
+          if (missingAnchor.length > 0) {
+            let prompt = "";
+            if (missingAnchor.includes("ordering") && missingAnchor.includes("limit")) {
+              prompt =
+                "Would you like to retrieve your **latest** or **earliest** transactions, and how many records (limit) would you like to view?";
+            } else if (missingAnchor.includes("ordering")) {
+              prompt =
+                "Would you like to view your **latest** (most recent) or **earliest** transactions?";
+            } else {
+              prompt =
+                "How many transaction records would you like to retrieve? Please specify a positive integer limit (e.g., 5, 10, 20).";
+            }
+
+            setTxnInquiryContext(mergedInquiry);
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: prompt,
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+            setIsLoading(false);
+            return;
+          }
+
+          // Complete Anchor parameters - Execute API immediately
+          const toolResult = await fetchTransactionInformationTool({
+            persona: "anchor",
+            ordering: mergedInquiry.ordering,
+            limit: mergedInquiry.limit,
+          });
+
+          setTxnInquiryContext({
+            active: false,
+            ordering: null,
+            limit: null,
+            vendorCode: null,
+            program: null,
+          });
+
+          if (toolResult.success) {
+            let records = Array.isArray(toolResult.data)
+              ? toolResult.data
+              : Array.isArray(toolResult.data?.data)
+              ? toolResult.data.data
+              : Array.isArray(toolResult.data?.transactions)
+              ? toolResult.data.transactions
+              : Array.isArray(toolResult.data?.transactionInfo)
+              ? toolResult.data.transactionInfo
+              : [];
+
+            const targetLimit = Number(mergedInquiry.limit);
+            if (Number.isInteger(targetLimit) && targetLimit > 0 && records.length > targetLimit) {
+              records = records.slice(0, targetLimit);
+            }
+
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: `📊 Retrieved ${records.length} ${mergedInquiry.ordering} transaction(s):`,
+              timestamp: new Date(),
+              data: {
+                type: "TRANSACTION_INQUIRY_RESULT",
+                result: toolResult,
+                criteria: mergedInquiry,
+                persona: currentPersona,
+                records,
+              },
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+          } else {
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: `⚠️ Failed to fetch transaction information: ${toolResult.error}`,
+              timestamp: new Date(),
+              data: {
+                type: "TRANSACTION_INQUIRY_ERROR",
+                error: toolResult.error,
+                endpoint: toolResult.endpoint,
+              },
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+          }
+
+          setIsLoading(false);
+          return;
+        }
+
+        // Vendor Persona
+        const missingVendor = [];
+        if (!mergedInquiry.ordering) missingVendor.push("ordering");
+        if (!mergedInquiry.limit) missingVendor.push("limit");
+        if (!mergedInquiry.vendorCode) missingVendor.push("vendorCode");
+
+        if (missingVendor.length > 0) {
+          let prompt = "";
+          if (missingVendor.length === 3) {
+            prompt =
+              "To fetch your transactions, please specify whether you want **latest** or **earliest** records, your **Vendor Code**, and the **number of records (limit)** to display.";
+          } else if (missingVendor.includes("vendorCode") && missingVendor.includes("limit")) {
+            prompt = `To retrieve your **${mergedInquiry.ordering}** transactions${
+              mergedInquiry.program ? ` for program **${mergedInquiry.program}**` : ""
+            }, please provide your **Vendor Code** and the **number of records (limit)** to display.`;
+          } else if (missingVendor.includes("vendorCode")) {
+            prompt = `Please provide your **Vendor Code** to retrieve the ${
+              mergedInquiry.ordering
+            } transactions${
+              mergedInquiry.program ? ` for program **${mergedInquiry.program}**` : ""
+            }.`;
+          } else if (missingVendor.includes("limit")) {
+            prompt =
+              "How many transaction records would you like to view? Please specify a positive integer limit (e.g., 5, 10, 20).";
+          } else if (missingVendor.includes("ordering")) {
+            prompt =
+              "Would you like to view your **latest** (most recent) or **earliest** transactions?";
+          }
+
+          setTxnInquiryContext(mergedInquiry);
+          const assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: prompt,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+          setIsLoading(false);
+          return;
+        }
+
+        // Complete Vendor parameters - Execute API immediately
+        const toolResult = await fetchTransactionInformationTool({
+          persona: "vendor",
+          ordering: mergedInquiry.ordering,
+          limit: mergedInquiry.limit,
+          vendorCode: mergedInquiry.vendorCode,
+          program: mergedInquiry.program,
+        });
+
+        setTxnInquiryContext({
+          active: false,
+          ordering: null,
+          limit: null,
+          vendorCode: null,
+          program: null,
+        });
+
+        if (toolResult.success) {
+          let records = Array.isArray(toolResult.data)
+            ? toolResult.data
+            : Array.isArray(toolResult.data?.data)
+            ? toolResult.data.data
+            : Array.isArray(toolResult.data?.transactions)
+            ? toolResult.data.transactions
+            : Array.isArray(toolResult.data?.transactionInfo)
+            ? toolResult.data.transactionInfo
+            : [];
+
+          const targetLimit = Number(mergedInquiry.limit);
+          if (Number.isInteger(targetLimit) && targetLimit > 0 && records.length > targetLimit) {
+            records = records.slice(0, targetLimit);
+          }
+
+          const assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: `📊 Retrieved ${records.length} ${mergedInquiry.ordering} transaction(s)${
+              mergedInquiry.program ? ` for program ${mergedInquiry.program}` : ""
+            }:`,
+            timestamp: new Date(),
+            data: {
+              type: "TRANSACTION_INQUIRY_RESULT",
+              result: toolResult,
+              criteria: mergedInquiry,
+              persona: currentPersona,
+              records,
+            },
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        } else {
+          const assistantMsg = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: `⚠️ Failed to fetch transaction information: ${toolResult.error}`,
+            timestamp: new Date(),
+            data: {
+              type: "TRANSACTION_INQUIRY_ERROR",
+              error: toolResult.error,
+              endpoint: toolResult.endpoint,
+            },
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        }
+
         setIsLoading(false);
         return;
       }
@@ -1339,6 +1598,414 @@ export function AskAIChatbot({
     );
   };
 
+  /**
+   * Render Transaction Information Result Card
+   * Displays actual API response data without fabrication.
+   */
+  const renderTransactionInfoCard = (cardData) => {
+    const { result, criteria, persona, records = [] } = cardData || {};
+    if (!result) return null;
+
+    const getField = (obj, keys, defaultVal = "-") => {
+      if (!obj || typeof obj !== "object") return defaultVal;
+      for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "") {
+          return obj[k];
+        }
+      }
+      return defaultVal;
+    };
+
+    const formatCurrency = (val) => {
+      if (val === undefined || val === null || val === "" || val === "-") return "-";
+      const num = Number(val);
+      if (isNaN(num)) return String(val);
+      return `INR ${num.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    };
+
+    // Check which columns are actually present in the backend response
+    const hasTxnRef = records.some(
+      (r) =>
+        getField(
+          r,
+          ["transactionrefnum", "transactionRefNum", "wiName", "transactionId", "id"],
+          null
+        ) !== null
+    );
+    const hasInvoiceNumber = records.some(
+      (r) => getField(r, ["invoicenumber", "invoiceNumber", "invoiceNo"], null) !== null
+    );
+    const hasVendor = records.some(
+      (r) => getField(r, ["vendorname", "vendorName", "vendor"], null) !== null
+    );
+    const hasAnchor = records.some(
+      (r) => getField(r, ["anchorname", "anchorName", "anchor"], null) !== null
+    );
+    const hasInvoiceDate = records.some(
+      (r) => getField(r, ["invoicedate", "invoiceDate", "date"], null) !== null
+    );
+    const hasDisbursedDate = records.some(
+      (r) => getField(r, ["disbursedate", "disburseDate"], null) !== null
+    );
+    const hasDueDate = records.some((r) => getField(r, ["duedate", "dueDate"], null) !== null);
+    const hasInvoiceAmount = records.some(
+      (r) => getField(r, ["invoiceamount", "invoiceAmount"], null) !== null
+    );
+    const hasDisburseAmount = records.some(
+      (r) => getField(r, ["disburseamount", "disburseAmount", "amount"], null) !== null
+    );
+    const hasStatus = records.some(
+      (r) => getField(r, ["status", "workitemStatus", "state"], null) !== null
+    );
+
+    return (
+      <div
+        style={{
+          marginTop: "0.75rem",
+          padding: "1rem",
+          backgroundColor: "#ffffff",
+          border: "1px solid #cbd5e1",
+          borderRadius: "0.75rem",
+          boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.75rem",
+          maxWidth: "100%",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "12px", fontWeight: "700", color: "#004831" }}>
+            📋 Transaction Information
+          </span>
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "#065f46",
+              backgroundColor: "#ecfdf5",
+              padding: "0.15rem 0.5rem",
+              borderRadius: "12px",
+              border: "1px solid #a7f3d0",
+            }}
+          >
+            {records.length} {records.length === 1 ? "Record" : "Records"}
+          </span>
+        </div>
+
+        {/* Business Context Pills (Program / Vendor) if present */}
+        {(criteria?.vendorCode || criteria?.program) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+            {criteria?.vendorCode && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  color: "#334155",
+                  backgroundColor: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  padding: "0.2rem 0.5rem",
+                  borderRadius: "4px",
+                }}
+              >
+                Vendor Code: <strong>{criteria.vendorCode}</strong>
+              </span>
+            )}
+            {criteria?.program && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  color: "#065f46",
+                  backgroundColor: "#ecfdf5",
+                  border: "1px solid #a7f3d0",
+                  padding: "0.2rem 0.5rem",
+                  borderRadius: "4px",
+                }}
+              >
+                Program: <strong>{criteria.program}</strong>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Content Table or Empty State */}
+        {records && records.length > 0 ? (
+          <div
+            style={{
+              maxHeight: "340px",
+              overflowY: "auto",
+              overflowX: "auto",
+              border: "1px solid #e2e8f0",
+              borderRadius: "0.5rem",
+              backgroundColor: "#ffffff",
+            }}
+          >
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "11px",
+                textAlign: "left",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    backgroundColor: "#f1f5f9",
+                    color: "#475569",
+                    borderBottom: "1px solid #e2e8f0",
+                  }}
+                >
+                  <th style={{ padding: "0.5rem 0.75rem" }}>#</th>
+                  {hasTxnRef && <th style={{ padding: "0.5rem 0.75rem" }}>Transaction Ref</th>}
+                  {hasInvoiceNumber && <th style={{ padding: "0.5rem 0.75rem" }}>Invoice #</th>}
+                  {hasVendor && <th style={{ padding: "0.5rem 0.75rem" }}>Vendor</th>}
+                  {hasAnchor && <th style={{ padding: "0.5rem 0.75rem" }}>Anchor</th>}
+                  {hasInvoiceDate && <th style={{ padding: "0.5rem 0.75rem" }}>Invoice Date</th>}
+                  {hasDisbursedDate && (
+                    <th style={{ padding: "0.5rem 0.75rem" }}>Disbursed Date</th>
+                  )}
+                  {hasDueDate && <th style={{ padding: "0.5rem 0.75rem" }}>Due Date</th>}
+                  {hasInvoiceAmount && (
+                    <th style={{ padding: "0.5rem 0.75rem" }}>Invoice Amount</th>
+                  )}
+                  {hasDisburseAmount && (
+                    <th style={{ padding: "0.5rem 0.75rem" }}>Disbursed Amount</th>
+                  )}
+                  {hasStatus && <th style={{ padding: "0.5rem 0.75rem" }}>Status</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((rec, idx) => {
+                  const refId = getField(
+                    rec,
+                    ["transactionrefnum", "transactionRefNum", "wiName", "transactionId", "id"],
+                    `REC-${idx + 1}`
+                  );
+                  const invoiceNo = getField(
+                    rec,
+                    ["invoicenumber", "invoiceNumber", "invoiceNo"],
+                    "-"
+                  );
+                  const vendor = getField(rec, ["vendorname", "vendorName", "vendor"], "-");
+                  const anchor = getField(rec, ["anchorname", "anchorName", "anchor"], "-");
+                  const invoiceDate = getField(rec, ["invoicedate", "invoiceDate", "date"], "-");
+                  const disburseDate = getField(rec, ["disbursedate", "disburseDate"], "-");
+                  const dueDate = getField(rec, ["duedate", "dueDate"], "-");
+                  const invoiceAmt = getField(rec, ["invoiceamount", "invoiceAmount"], "-");
+                  const disburseAmt = getField(
+                    rec,
+                    ["disburseamount", "disburseAmount", "amount"],
+                    "-"
+                  );
+                  const status = getField(rec, ["status", "workitemStatus", "state"], null);
+
+                  return (
+                    <tr
+                      key={idx}
+                      style={{
+                        borderBottom: "1px solid #f1f5f9",
+                        backgroundColor: idx % 2 === 0 ? "#ffffff" : "#fbfcfe",
+                      }}
+                    >
+                      <td style={{ padding: "0.5rem 0.75rem", color: "#94a3b8" }}>{idx + 1}</td>
+                      {hasTxnRef && (
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            fontWeight: "600",
+                            color: "#0f172a",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {refId}
+                        </td>
+                      )}
+                      {hasInvoiceNumber && (
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            fontWeight: "600",
+                            color: "#0369a1",
+                          }}
+                        >
+                          {invoiceNo}
+                        </td>
+                      )}
+                      {hasVendor && (
+                        <td style={{ padding: "0.5rem 0.75rem", color: "#334155" }}>{vendor}</td>
+                      )}
+                      {hasAnchor && (
+                        <td style={{ padding: "0.5rem 0.75rem", color: "#334155" }}>{anchor}</td>
+                      )}
+                      {hasInvoiceDate && (
+                        <td style={{ padding: "0.5rem 0.75rem", color: "#64748b" }}>
+                          {invoiceDate}
+                        </td>
+                      )}
+                      {hasDisbursedDate && (
+                        <td style={{ padding: "0.5rem 0.75rem", color: "#64748b" }}>
+                          {disburseDate}
+                        </td>
+                      )}
+                      {hasDueDate && (
+                        <td style={{ padding: "0.5rem 0.75rem", color: "#64748b" }}>{dueDate}</td>
+                      )}
+                      {hasInvoiceAmount && (
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            fontWeight: "600",
+                            color: "#0f172a",
+                          }}
+                        >
+                          {formatCurrency(invoiceAmt)}
+                        </td>
+                      )}
+                      {hasDisburseAmount && (
+                        <td
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            fontWeight: "600",
+                            color: "#059669",
+                          }}
+                        >
+                          {formatCurrency(disburseAmt)}
+                        </td>
+                      )}
+                      {hasStatus && (
+                        <td style={{ padding: "0.5rem 0.75rem" }}>
+                          <span
+                            style={{
+                              padding: "0.15rem 0.4rem",
+                              borderRadius: "4px",
+                              backgroundColor: "#f0fdf4",
+                              border: "1px solid #bbf7d0",
+                              color: "#166534",
+                              fontSize: "10px",
+                              fontWeight: "500",
+                            }}
+                          >
+                            {status}
+                          </span>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div
+            style={{
+              padding: "1rem",
+              textAlign: "center",
+              backgroundColor: "#f8fafc",
+              borderRadius: "0.5rem",
+              color: "#64748b",
+              fontSize: "11px",
+            }}
+          >
+            No transaction records found matching the requested parameters.
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /**
+   * Render formatted message text, parsing markdown bold, code, and italic
+   * so bold text is highlighted in bold weight and accent color instead of raw asterisks.
+   */
+  const renderFormattedMessage = (content, isUser) => {
+    if (!content || typeof content !== "string") return null;
+
+    const parseInline = (text, lineKey) => {
+      const regex = /(\*\*([^*]+?)\*\*|__([^_]+?)__|`([^`]+?)`|\*([^*]+?)\*|_([^_]+?)_)/g;
+      const elements = [];
+      let lastIdx = 0;
+      let match;
+      let tokenIdx = 0;
+
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIdx) {
+          elements.push(
+            <React.Fragment key={`${lineKey}-t-${tokenIdx++}`}>
+              {text.substring(lastIdx, match.index)}
+            </React.Fragment>
+          );
+        }
+
+        const boldText = match[2] || match[3];
+        const codeText = match[4];
+        const italicText = match[5] || match[6];
+
+        if (boldText !== undefined) {
+          elements.push(
+            <strong
+              key={`${lineKey}-b-${tokenIdx++}`}
+              style={{
+                fontWeight: 700,
+                color: isUser ? "#ffffff" : "#004831",
+              }}
+            >
+              {boldText}
+            </strong>
+          );
+        } else if (codeText !== undefined) {
+          elements.push(
+            <code
+              key={`${lineKey}-c-${tokenIdx++}`}
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.85em",
+                backgroundColor: isUser ? "rgba(255,255,255,0.2)" : "#f1f5f9",
+                color: isUser ? "#ffffff" : "#0f172a",
+                padding: "0.1rem 0.35rem",
+                borderRadius: "4px",
+              }}
+            >
+              {codeText}
+            </code>
+          );
+        } else if (italicText !== undefined) {
+          elements.push(
+            <em key={`${lineKey}-i-${tokenIdx++}`} style={{ fontStyle: "italic" }}>
+              {italicText}
+            </em>
+          );
+        }
+
+        lastIdx = regex.lastIndex;
+      }
+
+      if (lastIdx < text.length) {
+        elements.push(
+          <React.Fragment key={`${lineKey}-t-${tokenIdx++}`}>
+            {text.substring(lastIdx)}
+          </React.Fragment>
+        );
+      }
+
+      return elements.length > 0 ? elements : text;
+    };
+
+    const lines = content.split("\n");
+    return (
+      <div style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+        {lines.map((line, idx) => (
+          <React.Fragment key={idx}>
+            {idx > 0 && "\n"}
+            {parseInline(line, `l-${idx}`)}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
   const renderContent = () => (
     <div
       style={{
@@ -1611,7 +2278,7 @@ export function AskAIChatbot({
                   lineHeight: "1.5",
                 }}
               >
-                <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.content}</p>
+                {renderFormattedMessage(msg.content, msg.role === "user")}
                 {msg.fileInfo && (
                   <div
                     style={{
@@ -1639,6 +2306,9 @@ export function AskAIChatbot({
                 {/* Batch Extracted Invoices */}
                 {msg.data?.type === "DOCUMENT_BATCH_EXTRACTED" &&
                   renderBatchExtractedCard(msg.data.requestIds)}
+                {/* Transaction Information Card */}
+                {msg.data?.type === "TRANSACTION_INQUIRY_RESULT" &&
+                  renderTransactionInfoCard(msg.data)}
               </div>
             </div>
             <span

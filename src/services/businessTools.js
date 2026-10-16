@@ -5,7 +5,13 @@
  * and API interactions are executed strictly deterministically.
  */
 
-import { fetchProgramDetails, createWorkItem, bookLoan } from "./scfApiService";
+import {
+  fetchProgramDetails,
+  createWorkItem,
+  bookLoan,
+  fetchTransactionInformation,
+  getCurrentPersona,
+} from "./scfApiService";
 import {
   TRANSACTION_STATES,
   FIELD_PROVENANCE,
@@ -351,6 +357,42 @@ export async function bookLoanTool({ transaction, batchTransactions = [] }) {
 }
 
 /**
+ * Tool: fetchTransactionInformationTool
+ * Deterministic dispatcher for transaction history inquiries across Anchor and Vendor personas.
+ * Never fabricates results or hardcodes default identifiers.
+ */
+export async function fetchTransactionInformationTool({
+  persona,
+  ordering,
+  limit,
+  vendorCode,
+  program,
+}) {
+  try {
+    const resolvedPersona = persona || getCurrentPersona();
+    const result = await fetchTransactionInformation({
+      persona: resolvedPersona,
+      ordering,
+      limit,
+      vendorCode,
+      program,
+    });
+    return {
+      success: true,
+      endpoint: result.endpoint,
+      persona: result.persona,
+      params: result.params,
+      data: result.data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message || "Failed to retrieve transaction information.",
+    };
+  }
+}
+
+/**
  * Tool Registry Map for allowlisted function-calling dispatch.
  */
 export const TOOL_REGISTRY = {
@@ -360,4 +402,5 @@ export const TOOL_REGISTRY = {
   createLoanWorkItem: createLoanWorkItemTool,
   verifyLoanOtp: verifyLoanOtpTool,
   bookLoan: bookLoanTool,
+  fetchTransactionInformation: fetchTransactionInformationTool,
 };

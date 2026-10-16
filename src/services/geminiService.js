@@ -58,6 +58,34 @@ export const TOOL_DECLARATIONS = [
       required: ["vendorName"],
     },
   },
+  {
+    name: "fetchTransactionInformation",
+    description:
+      "Retrieve transaction history. Note: The user persona (Anchor or Vendor) is resolved deterministically by the application from authenticated session.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        ordering: {
+          type: "STRING",
+          description: "Ordering direction: 'latest' (or 'last') vs 'earliest' (or 'first').",
+          enum: ["latest", "earliest"],
+        },
+        limit: {
+          type: "NUMBER",
+          description: "Number of records to retrieve (positive integer).",
+        },
+        vendorCode: {
+          type: "STRING",
+          description: "Vendor code (required for Vendor persona; not used for Anchor).",
+        },
+        program: {
+          type: "STRING",
+          description: "Program identifier if filtering by a specific program.",
+        },
+      },
+      required: ["ordering"],
+    },
+  },
 ];
 
 /**
@@ -336,13 +364,14 @@ export async function processNexusIntent(
 
   // 2. Structured Natural Language Understanding
   const systemInstruction = `You are Nexus AI, an intelligent Supply Chain Finance assistant.
-You assist buyers and vendors with invoice financing, program selection, and loan bookings.
+You assist buyers and vendors with invoice financing, program selection, loan bookings, and transaction history retrieval.
 
 YOUR OBJECTIVES:
 1. Identify the user's intent:
    - LOAN_REQUEST: User wants to finance an invoice or is providing invoice details.
    - CORRECTION: User is explicitly correcting an invoice detail (e.g., "Change the amount to 240000").
-   - LOAN_INQUIRY: User is asking about loan status, limits, financing programs, or general portal information.
+   - TRANSACTION_INQUIRY: User is requesting past or recent transactions (e.g., "Show my latest transactions", "Show earliest 5 records", "Fetch transactions for program PROG-001").
+   - LOAN_INQUIRY: User is asking about general financing terms, limits, or general portal information.
    - CHAT: General conversational greeting or assistance.
 2. Extract any entities explicitly provided in the latest user input:
    - vendorName: Vendor / Spoke name
@@ -352,6 +381,10 @@ YOUR OBJECTIVES:
    - invoiceAmount: Numeric value (do not guess!)
    - discountAmount: Numeric value (do not guess! If not explicitly stated, return null)
    - currency: Currency code (e.g. INR)
+   - ordering: "latest" or "earliest" (for transaction inquiries)
+   - limit: Positive integer for transaction count (do not assume 10 or any default!)
+   - vendorCode: Explicit vendor code (e.g. VEN0020549)
+   - program: Program ID or code for transaction filtering (e.g. PROG-00000206-ID)
 3. Zero-Assumption Rule:
    - NEVER invent or assume missing fields.
    - If user does not mention discount, discountAmount MUST be null.
@@ -359,7 +392,7 @@ YOUR OBJECTIVES:
 
 OUTPUT JSON FORMAT:
 {
-  "intent": "LOAN_REQUEST" | "CORRECTION" | "LOAN_INQUIRY" | "CHAT",
+  "intent": "LOAN_REQUEST" | "CORRECTION" | "TRANSACTION_INQUIRY" | "LOAN_INQUIRY" | "CHAT",
   "entities": {
     "vendorName": string | null,
     "programName": string | null,
@@ -367,7 +400,11 @@ OUTPUT JSON FORMAT:
     "invoiceDate": string | null,
     "invoiceAmount": number | null,
     "discountAmount": number | null,
-    "currency": string | null
+    "currency": string | null,
+    "ordering": "latest" | "earliest" | null,
+    "limit": number | null,
+    "vendorCode": string | null,
+    "program": string | null
   },
   "isExplicitCorrection": boolean,
   "isNewRequest": boolean,
@@ -389,6 +426,7 @@ OUTPUT JSON FORMAT:
   });
 
   const contents = buildAlternatingContents(history, userParts);
+  const fallbackTxnParams = extractTransactionParamsFromText(userInput);
 
   try {
     const response = await ai.models.generateContent({
@@ -401,15 +439,41 @@ OUTPUT JSON FORMAT:
     });
 
     const parsed = safeJsonParse(response.text || "{}");
+    const detectedIntent = parsed.intent || "CHAT";
+    const mergedEntities = {
+      ...(parsed.entities || {}),
+      ...(fallbackTxnParams.ordering ? { ordering: fallbackTxnParams.ordering } : {}),
+      ...(fallbackTxnParams.limit ? { limit: fallbackTxnParams.limit } : {}),
+      ...(fallbackTxnParams.vendorCode ? { vendorCode: fallbackTxnParams.vendorCode } : {}),
+      ...(fallbackTxnParams.program ? { program: fallbackTxnParams.program } : {}),
+    };
+
     return {
-      type: parsed.intent || "CHAT",
-      entities: parsed.entities || {},
+      type: detectedIntent,
+      entities: mergedEntities,
       isExplicitCorrection: Boolean(parsed.isExplicitCorrection),
       isNewRequest: Boolean(parsed.isNewRequest),
       message: parsed.message || "I've processed your request.",
     };
   } catch (error) {
     console.error("processNexusIntent Error:", error);
+    const isTxnQuery =
+      Boolean(fallbackTxnParams.ordering) ||
+      Boolean(fallbackTxnParams.limit) ||
+      Boolean(fallbackTxnParams.vendorCode) ||
+      Boolean(fallbackTxnParams.program) ||
+      /\b(transaction|transactions|txn|txns)\b/i.test(userInput);
+
+    if (isTxnQuery) {
+      return {
+        type: "TRANSACTION_INQUIRY",
+        entities: fallbackTxnParams,
+        isExplicitCorrection: false,
+        isNewRequest: false,
+        message: "Processing transaction information request.",
+      };
+    }
+
     return {
       type: "CHAT",
       message: `I encountered an issue processing your request: ${
@@ -418,6 +482,54 @@ OUTPUT JSON FORMAT:
       entities: {},
     };
   }
+}
+
+/**
+ * Deterministic regex extractor for candidate transaction parameters from text.
+ * Used for zero-hallucination parameter preservation and fallback resilience.
+ */
+export function extractTransactionParamsFromText(text) {
+  if (!text || typeof text !== "string") {
+    return {};
+  }
+  const clean = text.trim();
+  const lower = clean.toLowerCase();
+  const extracted = {};
+
+  if (/\b(latest|last|recent|newest)\b/i.test(lower)) {
+    extracted.ordering = "latest";
+  } else if (/\b(earliest|first|oldest)\b/i.test(lower)) {
+    extracted.ordering = "earliest";
+  }
+
+  const limitMatch =
+    clean.match(/\b(?:limit|records|transactions|count|show|top)\s*[:=]?\s*(\d+)\b/i) ||
+    clean.match(/\b(\d+)\s*(?:records|transactions|invoices|txns|items)\b/i);
+  if (limitMatch && limitMatch[1]) {
+    const val = parseInt(limitMatch[1], 10);
+    if (val > 0) {
+      extracted.limit = val;
+    }
+  }
+
+  const vendorMatch =
+    clean.match(
+      /\b(?:vendor\s*code|vendorCode|spoke\s*code)\s*(?:is|:|=)?\s*([A-Za-z0-9_-]+)\b/i
+    ) ||
+    clean.match(/\b(VEN[A-Za-z0-9_-]+)\b/i) ||
+    clean.match(/\b(VC[0-9]+)\b/i);
+  if (vendorMatch && vendorMatch[1]) {
+    extracted.vendorCode = vendorMatch[1].trim();
+  }
+
+  const progMatch =
+    clean.match(/\b(?:program|programId|prog)\s*(?:is|:|=)?\s*([A-Za-z0-9_-]+)\b/i) ||
+    clean.match(/\b(PROG-[A-Za-z0-9_-]+)\b/i);
+  if (progMatch && progMatch[1]) {
+    extracted.program = progMatch[1].trim();
+  }
+
+  return extracted;
 }
 
 /**
