@@ -52,6 +52,7 @@ import { useMaterialUIController, setMiniSidenav, setOpenConfigurator } from "co
 // Images
 import brandWhite from "assets/images/logo-ct.png";
 import brandDark from "assets/images/logo-ct-dark.png";
+import AskAIChatbot from "components/AskAI/AskAIChatbot";
 
 export default function App() {
   const [controller, dispatch] = useMaterialUIController();
@@ -163,6 +164,7 @@ export default function App() {
         )}
         {layout === "vr" && <Configurator />}
         <Outlet></Outlet>
+        <AskAIChatbot />
       </ThemeProvider>
     </CacheProvider>
   ) : (
@@ -183,6 +185,7 @@ export default function App() {
       )}
       {layout === "vr" && <Configurator />}
       <Outlet></Outlet>
+      <AskAIChatbot />
     </ThemeProvider>
   );
 }
