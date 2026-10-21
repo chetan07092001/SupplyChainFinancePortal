@@ -93,6 +93,113 @@ const VALID_TRANSITIONS = {
   [TRANSACTION_STATES.CANCELLED]: [],
 };
 
+const MONTH_MAP = {
+  jan: "01",
+  january: "01",
+  feb: "02",
+  february: "02",
+  mar: "03",
+  march: "03",
+  apr: "04",
+  april: "04",
+  may: "05",
+  jun: "06",
+  june: "06",
+  jul: "07",
+  july: "07",
+  aug: "08",
+  august: "08",
+  sep: "09",
+  sept: "09",
+  september: "09",
+  oct: "10",
+  october: "10",
+  nov: "11",
+  november: "11",
+  dec: "12",
+  december: "12",
+};
+
+/**
+ * Standardize any input date (natural language, ISO, hyphenated, etc.)
+ * into strict DD/MM/YYYY format required by SCF backend APIs.
+ * Preserves null/undefined/empty string.
+ * Returns trimmed original if unrecognized so validator can flag it.
+ */
+export function normalizeDateToDDMMYYYY(dateInput) {
+  if (dateInput === null || dateInput === undefined) return null;
+  if (typeof dateInput === "object" && dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+    const day = String(dateInput.getDate()).padStart(2, "0");
+    const month = String(dateInput.getMonth() + 1).padStart(2, "0");
+    const year = String(dateInput.getFullYear());
+    return `${day}/${month}/${year}`;
+  }
+
+  const str = String(dateInput).trim();
+  if (!str) return str;
+
+  // 1. DD/MM/YYYY or DD-MM-YYYY (e.g. 16/10/2026, 16-10-2026, 5/4/2026)
+  const ddmmyyyy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
+  const matchDmy = str.match(ddmmyyyy);
+  if (matchDmy) {
+    const day = matchDmy[1].padStart(2, "0");
+    const month = matchDmy[2].padStart(2, "0");
+    const year = matchDmy[3];
+    return `${day}/${month}/${year}`;
+  }
+
+  // 2. YYYY-MM-DD or YYYY/MM/DD (e.g. 2026-10-16, 2026/10/16, or ISO 2026-10-16T...)
+  const cleanIso = str.includes("T") ? str.split("T")[0] : str;
+  const yyyymmdd = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/;
+  const matchYmd = cleanIso.match(yyyymmdd);
+  if (matchYmd) {
+    const year = matchYmd[1];
+    const month = matchYmd[2].padStart(2, "0");
+    const day = matchYmd[3].padStart(2, "0");
+    return `${day}/${month}/${year}`;
+  }
+
+  // 3. Natural language: "16th October 2026", "16 Oct 2026", "16-Oct-2026", "16 October, 2026"
+  const dMNameY = /^(\d{1,2})(?:st|nd|rd|th)?[-\s]+([A-Za-z]+)[,-\s]+(\d{4})$/i;
+  const matchDMNameY = str.match(dMNameY);
+  if (matchDMNameY) {
+    const mKey = matchDMNameY[2].toLowerCase();
+    if (MONTH_MAP[mKey]) {
+      const day = matchDMNameY[1].padStart(2, "0");
+      const month = MONTH_MAP[mKey];
+      const year = matchDMNameY[3];
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  // 4. Natural language: "October 16th 2026", "Oct 16, 2026"
+  const mNameDY = /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?[,-\s]+(\d{4})$/i;
+  const matchMNameDY = str.match(mNameDY);
+  if (matchMNameDY) {
+    const mKey = matchMNameDY[1].toLowerCase();
+    if (MONTH_MAP[mKey]) {
+      const month = MONTH_MAP[mKey];
+      const day = matchMNameDY[2].padStart(2, "0");
+      const year = matchMNameDY[3];
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  // Fallback to JS Date parse if valid non-NaN timestamp
+  const parsedTimestamp = Date.parse(str);
+  if (!isNaN(parsedTimestamp)) {
+    const d = new Date(parsedTimestamp);
+    if (d.getFullYear() >= 1900 && d.getFullYear() <= 2100) {
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear());
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  return str;
+}
+
 /**
  * Generate a unique collision-resistant transaction ID.
  * Does not use timestamps alone.
@@ -136,7 +243,7 @@ export function createNewTransaction(overrides = {}) {
     },
     invoice: {
       number: overrides.invoiceNumber || null,
-      date: overrides.invoiceDate || null,
+      date: overrides.invoiceDate ? normalizeDateToDDMMYYYY(overrides.invoiceDate) : null,
       amount: overrides.invoiceAmount !== undefined ? overrides.invoiceAmount : null,
       discountAmount: overrides.discountAmount !== undefined ? overrides.discountAmount : null,
       currency: overrides.currency || "INR",
@@ -227,12 +334,19 @@ export function validateTransactionData(transaction) {
   if (!inv.date || typeof inv.date !== "string" || !inv.date.trim()) {
     missingFields.push("Invoice Date");
   } else {
-    // Validate DD/MM/YYYY or YYYY-MM-DD
+    // Strictly validate DD/MM/YYYY format required by backend
     const dateStr = inv.date.trim();
-    const ddmmyyyy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
-    const yyyymmdd = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/;
-    if (!ddmmyyyy.test(dateStr) && !yyyymmdd.test(dateStr)) {
-      validationErrors.push("Invoice Date must be in DD/MM/YYYY or YYYY-MM-DD format.");
+    const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    const match = dateStr.match(ddmmyyyy);
+    if (!match) {
+      validationErrors.push("Invoice Date must be in DD/MM/YYYY format (e.g., 16/10/2026).");
+    } else {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10);
+      const year = parseInt(match[3], 10);
+      if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2100) {
+        validationErrors.push("Invoice Date contains an invalid calendar date.");
+      }
     }
   }
 
@@ -258,9 +372,9 @@ export function validateTransactionData(transaction) {
     const numDisc = Number(inv.discountAmount);
     if (isNaN(numDisc) || numDisc < 0) {
       validationErrors.push("Discount Amount must be zero or a positive number.");
-    } else if (inv.amount !== null && !isNaN(Number(inv.amount)) && numDisc >= Number(inv.amount)) {
+    } else if (inv.amount !== null && !isNaN(Number(inv.amount)) && numDisc > Number(inv.amount)) {
       validationErrors.push(
-        "Discount Amount cannot be greater than or equal to the Invoice Amount."
+        "Discount Amount (financed amount) cannot be greater than the Invoice Amount."
       );
     }
   }
@@ -324,7 +438,8 @@ export function mergeRequestEntities(existingRequest, extractedEntities = {}, so
 
   // Invoice Date
   if (extractedEntities.invoiceDate !== undefined && extractedEntities.invoiceDate !== null) {
-    updated.invoice.date = String(extractedEntities.invoiceDate).trim();
+    const rawDate = String(extractedEntities.invoiceDate).trim();
+    updated.invoice.date = rawDate ? normalizeDateToDDMMYYYY(rawDate) : null;
     updated.invoice.provenance.date = provenanceType;
   }
 

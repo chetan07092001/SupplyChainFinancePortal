@@ -25,7 +25,7 @@ import {
   Minimize2,
   Layers,
 } from "lucide-react";
-import { processNexusIntent } from "../../services/geminiService";
+import { processNexusIntent, extractTransactionParamsFromText } from "../../services/geminiService";
 import { logChatbot } from "../../utils/chatbotLogger";
 import {
   TRANSACTION_STATES,
@@ -98,6 +98,11 @@ export function AskAIChatbot({
     limit: null,
     vendorCode: null,
     program: null,
+  });
+  // Program Details Inquiry Context (Multi-turn vendor collection)
+  const [progInquiryContext, setProgInquiryContext] = useState({
+    active: false,
+    vendorName: null,
   });
 
   const messagesEndRef = useRef(null);
@@ -267,9 +272,97 @@ export function AskAIChatbot({
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const historyForAI = messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role, content: m.content }));
+      // 1. FAST-PATH: Direct Program Inquiry or Active Program Follow-Up
+      // Bypasses Gemini entirely: 0 tokens consumed, response in <100ms!
+      const isDirectProgQuery =
+        progInquiryContext.active ||
+        (/\b(program|programs)\b/i.test(displayContent) &&
+          /\b(list|show|give|what|available|all|view|get|tell|details|fetch|find)\b/i.test(
+            displayContent
+          ) &&
+          !/\b(transaction|transactions|txn|txns|invoice|upload|book\s*loan)\b/i.test(
+            displayContent
+          ));
+
+      if (isDirectProgQuery && !currentFile) {
+        setTxnInquiryContext({
+          active: false,
+          ordering: null,
+          limit: null,
+          vendorCode: null,
+          program: null,
+        });
+
+        const rawVendorInput = progInquiryContext.active
+          ? displayContent.replace(/^(for|vendor|please|to|show)\s+/i, "").trim()
+          : null;
+
+        const effectiveVendor =
+          rawVendorInput ||
+          transactions[activeRequestId]?.vendor?.name ||
+          (localStorage.getItem("type")?.toLowerCase() === "vendor"
+            ? localStorage.getItem("vendorName") || localStorage.getItem("companyName")
+            : null);
+
+        if (effectiveVendor) {
+          setProgInquiryContext({ active: false, vendorName: null });
+          try {
+            const progRes = await getVendorPrograms({ vendorName: effectiveVendor });
+            if (progRes.success && Array.isArray(progRes.programs) && progRes.programs.length > 0) {
+              const progList = progRes.programs.map((p) => `• **${p}**`).join("\n");
+              const assistantMsg = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content:
+                  `Here are the active financing programs available for **${effectiveVendor}**:\n\n` +
+                  `${progList}\n\n` +
+                  `Please click on a program pill below or type the program name to continue.`,
+                timestamp: new Date(),
+                data: {
+                  type: "PROGRAM_INQUIRY_RESULT",
+                  vendorName: effectiveVendor,
+                  programs: progRes.programs,
+                },
+              };
+              setMessages((prev) => [...prev, assistantMsg]);
+            } else {
+              const assistantMsg = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content: progRes.error
+                  ? `⚠️ Could not retrieve programs for **${effectiveVendor}**: ${progRes.error}`
+                  : `No active financing programs found for vendor **${effectiveVendor}**.`,
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, assistantMsg]);
+            }
+          } catch (err) {
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: `⚠️ Error fetching programs for **${effectiveVendor}**: ${err.message}`,
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // If vendor is not known yet, prompt user for vendor name
+        setProgInquiryContext({ active: true, vendorName: null });
+        const assistantMsg = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content:
+            "For which vendor would you like to retrieve available financing programs? " +
+            "Please provide your **Vendor Name** (e.g., *Vendor 1*).",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setIsLoading(false);
+        return;
+      }
 
       const fileDataToSend = currentFile
         ? {
@@ -285,13 +378,48 @@ export function AskAIChatbot({
         activeRequestId,
       });
 
-      const result = await processNexusIntent(
-        displayContent,
-        historyForAI,
-        audioData,
-        fileDataToSend,
-        transactions
-      );
+      let result = null;
+
+      // 2. FAST-PATH: Active Transaction Inquiry Continuation
+      // Bypasses Gemini entirely: 0 tokens consumed, response in <100ms!
+      if (
+        txnInquiryContext.active &&
+        !currentFile &&
+        !/\b(program|programs|finance|upload|invoice|loan)\b/i.test(displayContent)
+      ) {
+        result = {
+          type: "TRANSACTION_INQUIRY",
+          entities: extractTransactionParamsFromText(displayContent),
+          isExplicitCorrection: false,
+          isNewRequest: false,
+          message: "Processing transaction inquiry.",
+        };
+      } else {
+        // Token-efficient history: keep last 4 turns, truncate messages, strip bulky tables
+        const historyForAI = messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-4)
+          .map((m) => {
+            let text = typeof m.content === "string" ? m.content : "";
+            text = text
+              .replace(/\|[^\n]+\|\n?/g, "")
+              .replace(/•\s[^\n]+\n?/g, "")
+              .trim();
+            if (text.length > 250) {
+              text = text.slice(0, 250) + "...";
+            }
+            return { role: m.role, content: text };
+          })
+          .filter((m) => m.content.length > 0);
+
+        result = await processNexusIntent(
+          displayContent,
+          historyForAI,
+          audioData,
+          fileDataToSend,
+          transactions
+        );
+      }
 
       if (result.type === "DOCUMENT_EXTRACTED") {
         logChatbot("RESPONSE", {
@@ -363,12 +491,112 @@ export function AskAIChatbot({
         return;
       }
 
+      // CASE P: Program Details Inquiry (GET /scf/ProgramDetails?VendorName={vendorName})
+      const isProgramInquiry =
+        progInquiryContext.active ||
+        result.type === "PROGRAM_INQUIRY" ||
+        (/\b(program|programs)\b/i.test(displayContent) &&
+          /\b(list|show|give|what|available|all|view|get|tell|details|fetch|find)\b/i.test(
+            displayContent
+          ) &&
+          !/\b(transaction|transactions|txn|txns|invoice|upload|book\s*loan)\b/i.test(
+            displayContent
+          ));
+
+      if (isProgramInquiry) {
+        // Clear any lingering transaction context
+        setTxnInquiryContext({
+          active: false,
+          ordering: null,
+          limit: null,
+          vendorCode: null,
+          program: null,
+        });
+
+        // Determine target vendor:
+        const rawVendorInput = progInquiryContext.active
+          ? displayContent.replace(/^(for|vendor|please|to|show)\s+/i, "").trim()
+          : null;
+
+        const effectiveVendor =
+          result.entities?.vendorName ||
+          rawVendorInput ||
+          transactions[activeRequestId]?.vendor?.name ||
+          (localStorage.getItem("type")?.toLowerCase() === "vendor"
+            ? localStorage.getItem("vendorName") || localStorage.getItem("companyName")
+            : null);
+
+        if (effectiveVendor) {
+          setProgInquiryContext({ active: false, vendorName: null });
+          try {
+            const progRes = await getVendorPrograms({ vendorName: effectiveVendor });
+            if (progRes.success && Array.isArray(progRes.programs) && progRes.programs.length > 0) {
+              const progList = progRes.programs.map((p) => `• **${p}**`).join("\n");
+              const assistantMsg = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content:
+                  `Here are the active financing programs available for **${effectiveVendor}**:\n\n` +
+                  `${progList}\n\n` +
+                  `Please click on a program pill below or type the program name to continue.`,
+                timestamp: new Date(),
+                data: {
+                  type: "PROGRAM_INQUIRY_RESULT",
+                  vendorName: effectiveVendor,
+                  programs: progRes.programs,
+                },
+              };
+              setMessages((prev) => [...prev, assistantMsg]);
+            } else {
+              const assistantMsg = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content: progRes.error
+                  ? `⚠️ Could not retrieve programs for **${effectiveVendor}**: ${progRes.error}`
+                  : `No active financing programs found for vendor **${effectiveVendor}**.`,
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, assistantMsg]);
+            }
+          } catch (err) {
+            const assistantMsg = {
+              id: (Date.now() + 1).toString(),
+              role: "assistant",
+              content: `⚠️ Error fetching programs for **${effectiveVendor}**: ${err.message}`,
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, assistantMsg]);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // If vendor is not known yet, prompt user for vendor name
+        setProgInquiryContext({ active: true, vendorName: null });
+        const assistantMsg = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content:
+            "For which vendor would you like to retrieve available financing programs? " +
+            "Please provide your **Vendor Name** (e.g., *Vendor 1*).",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        setIsLoading(false);
+        return;
+      }
+
       // CASE T: Transaction Information Inquiry & Multi-Turn Parameter Routing
       const isTxnInquiry =
-        result.type === "TRANSACTION_INQUIRY" ||
-        txnInquiryContext.active ||
-        (/\b(transaction|transactions|txn|txns)\b/i.test(displayContent) &&
-          !/\b(finance|upload|invoice|book\s*loan|discount)\b/i.test(displayContent));
+        !isProgramInquiry &&
+        !progInquiryContext.active &&
+        (result.type === "TRANSACTION_INQUIRY" ||
+          (txnInquiryContext.active &&
+            !/\b(program|programs|finance|upload|invoice|loan)\b/i.test(displayContent)) ||
+          (/\b(transaction|transactions|txn|txns)\b/i.test(displayContent) &&
+            !/\b(finance|upload|invoice|book\s*loan|discount|program|programs)\b/i.test(
+              displayContent
+            )));
 
       if (isTxnInquiry) {
         let currentPersona = null;
@@ -1116,7 +1344,7 @@ export function AskAIChatbot({
                 </strong>
               </div>
               <div>
-                <span style={{ color: "#94a3b8" }}>Total Discount:</span>{" "}
+                <span style={{ color: "#94a3b8" }}>Total Financed:</span>{" "}
                 <strong style={{ color: "#047857" }}>
                   {txn.invoice.currency} {totalDiscount.toLocaleString("en-US")}
                 </strong>
@@ -1143,7 +1371,7 @@ export function AskAIChatbot({
                 </strong>
               </div>
               <div>
-                <span style={{ color: "#94a3b8" }}>Discount:</span>{" "}
+                <span style={{ color: "#94a3b8" }}>Financed (Discount):</span>{" "}
                 <strong>
                   {txn.invoice.discountAmount !== null
                     ? `${txn.invoice.currency} ${Number(txn.invoice.discountAmount).toLocaleString(
@@ -1346,7 +1574,7 @@ export function AskAIChatbot({
                 </strong>
               </div>
               <div>
-                <span style={{ color: "#94a3b8" }}>Total Discount Amount:</span>{" "}
+                <span style={{ color: "#94a3b8" }}>Total Financed (Discount):</span>{" "}
                 <strong style={{ color: "#047857" }}>
                   {txn.invoice.currency} {totalDiscount.toLocaleString("en-US")}
                 </strong>
@@ -1368,7 +1596,7 @@ export function AskAIChatbot({
                 </strong>
               </div>
               <div>
-                <span style={{ color: "#94a3b8" }}>Discount Amount:</span>{" "}
+                <span style={{ color: "#94a3b8" }}>Financed (Discount):</span>{" "}
                 <strong style={{ color: "#047857" }}>
                   {txn.invoice.currency}{" "}
                   {Number(txn.invoice.discountAmount).toLocaleString("en-US")}
@@ -1594,6 +1822,72 @@ export function AskAIChatbot({
             </div>
           );
         })}
+      </div>
+    );
+  };
+
+  /**
+   * Render Program Inquiry Card
+   * Shows active programs retrieved from backend with interactive selection pills.
+   */
+  const renderProgramInquiryCard = (cardData) => {
+    const { vendorName, programs = [] } = cardData || {};
+    if (!programs || programs.length === 0) return null;
+
+    return (
+      <div
+        style={{
+          marginTop: "0.75rem",
+          padding: "0.875rem",
+          backgroundColor: "#f8fafc",
+          border: "1px solid #e2e8f0",
+          borderRadius: "0.75rem",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.5rem",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "11px", fontWeight: "700", color: "#004831" }}>
+            Available Financing Programs
+          </span>
+          {vendorName && (
+            <span
+              style={{
+                fontSize: "10px",
+                color: "#065f46",
+                backgroundColor: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                padding: "0.15rem 0.45rem",
+                borderRadius: "4px",
+                fontWeight: "600",
+              }}
+            >
+              {vendorName}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+          {programs.map((prog) => (
+            <button
+              key={prog}
+              type="button"
+              onClick={() => handleSendMessage(undefined, undefined, `Use program ${prog}`)}
+              style={{
+                padding: "0.3rem 0.625rem",
+                backgroundColor: "#ecfdf5",
+                border: "1px solid #a7f3d0",
+                color: "#065f46",
+                fontSize: "11px",
+                fontWeight: "600",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+            >
+              {prog}
+            </button>
+          ))}
+        </div>
       </div>
     );
   };
@@ -2309,6 +2603,8 @@ export function AskAIChatbot({
                 {/* Transaction Information Card */}
                 {msg.data?.type === "TRANSACTION_INQUIRY_RESULT" &&
                   renderTransactionInfoCard(msg.data)}
+                {/* Program Inquiry Result Card */}
+                {msg.data?.type === "PROGRAM_INQUIRY_RESULT" && renderProgramInquiryCard(msg.data)}
               </div>
             </div>
             <span

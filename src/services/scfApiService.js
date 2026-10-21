@@ -1,4 +1,5 @@
 import axios from "axios";
+import { normalizeDateToDDMMYYYY } from "./transactionState";
 
 const BASE_URL = "https://scfdemo.newgensoftware.net:8443/scf";
 
@@ -221,6 +222,13 @@ export async function fetchProgramDetails(vendorName) {
  */
 export async function createWorkItem({ anchorcode, programname, invoiceDetais }) {
   try {
+    const sanitizedInvoiceDetais = Array.isArray(invoiceDetais)
+      ? invoiceDetais.map((item) => ({
+          ...item,
+          invoiceDate: normalizeDateToDDMMYYYY(item.invoiceDate) || item.invoiceDate,
+        }))
+      : invoiceDetais;
+
     const response = await axios.post(
       `${BASE_URL}/createWorkItemInvoiceChatbotMessage`,
       {
@@ -228,7 +236,7 @@ export async function createWorkItem({ anchorcode, programname, invoiceDetais })
         programname,
         wiName: "",
         folderIndex: "",
-        invoiceDetais,
+        invoiceDetais: sanitizedInvoiceDetais,
       },
       { headers: getAuthHeaders() }
     );
@@ -258,6 +266,13 @@ export async function createWorkItem({ anchorcode, programname, invoiceDetais })
  */
 export async function bookLoan({ anchorcode, programname, wiName, folderIndex, invoiceDetais }) {
   try {
+    const sanitizedInvoiceDetais = Array.isArray(invoiceDetais)
+      ? invoiceDetais.map((item) => ({
+          ...item,
+          invoiceDate: normalizeDateToDDMMYYYY(item.invoiceDate) || item.invoiceDate,
+        }))
+      : invoiceDetais;
+
     const response = await axios.post(
       `${BASE_URL}/LoanBooking`,
       {
@@ -265,7 +280,7 @@ export async function bookLoan({ anchorcode, programname, wiName, folderIndex, i
         programname,
         wiName,
         folderIndex,
-        invoiceDetais,
+        invoiceDetais: sanitizedInvoiceDetais,
       },
       { headers: getAuthHeaders() }
     );

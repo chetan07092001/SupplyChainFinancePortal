@@ -462,6 +462,11 @@ describe("Intelligent Transaction Information API Routing Tests", () => {
       expect(res.vendorCode).toBe("VEN0020549");
     });
 
+    test("does not falsely extract plural 'programs' as a program code", () => {
+      const res = extractTransactionParamsFromText("give me a list of all my programs");
+      expect(res.program).toBeUndefined();
+    });
+
     test("returns empty object for missing fields without inventing defaults", () => {
       const res = extractTransactionParamsFromText("Hello assistant");
       expect(res.ordering).toBeUndefined();

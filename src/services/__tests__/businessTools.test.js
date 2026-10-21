@@ -86,6 +86,35 @@ describe("Phase 3: Business Tools Registry", () => {
     );
   });
 
+  test("createLoanWorkItemTool normalizes invoiceDate to DD/MM/YYYY in invoiceDetais", async () => {
+    scfApi.createWorkItem.mockResolvedValueOnce({
+      wiName: "WI-2026-DATE-TEST",
+      folderIndex: "FL-999",
+    });
+
+    const txn = createNewTransaction({
+      vendorName: "Vendor 1",
+      programName: "Prog 1",
+      invoiceNumber: "INV-DATE-1",
+      invoiceDate: "2026-10-16",
+      invoiceAmount: 50000,
+      discountAmount: 1000,
+    });
+
+    const res = await createLoanWorkItemTool({ transaction: txn });
+    expect(res.success).toBe(true);
+    expect(scfApi.createWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invoiceDetais: [
+          expect.objectContaining({
+            invoiceNumber: "INV-DATE-1",
+            invoiceDate: "16/10/2026",
+          }),
+        ],
+      })
+    );
+  });
+
   test("verifyLoanOtpTool rejects invalid length or mismatched transaction state", async () => {
     const txn = createNewTransaction(); // status = collecting_details
     const res = await verifyLoanOtpTool({ transaction: txn, otpCode: "123" });

@@ -6,6 +6,7 @@ import {
   transitionTransaction,
   validateTransactionData,
   mergeRequestEntities,
+  normalizeDateToDDMMYYYY,
 } from "../transactionState";
 
 describe("Phase 2: Deterministic Transaction State Management", () => {
@@ -58,6 +59,39 @@ describe("Phase 2: Deterministic Transaction State Management", () => {
     expect(result.valid).toBe(true);
     expect(result.missingFields).toHaveLength(0);
     expect(result.validationErrors).toHaveLength(0);
+  });
+
+  test("SCF domain rule: discountAmount equal to invoiceAmount is valid (100% financing)", () => {
+    const txn = createNewTransaction({
+      vendorName: "Vendor 1",
+      programName: "VFProgV3",
+      invoiceNumber: "INV0123232123",
+      invoiceDate: "16/10/2026",
+      invoiceAmount: 20000,
+      discountAmount: 20000,
+    });
+
+    const result = validateTransactionData(txn);
+    expect(result.valid).toBe(true);
+    expect(result.missingFields).toHaveLength(0);
+    expect(result.validationErrors).toHaveLength(0);
+  });
+
+  test("SCF domain rule: discountAmount exceeding invoiceAmount triggers validation error", () => {
+    const txn = createNewTransaction({
+      vendorName: "Vendor 1",
+      programName: "VFProgV3",
+      invoiceNumber: "INV0123232123",
+      invoiceDate: "16/10/2026",
+      invoiceAmount: 20000,
+      discountAmount: 25000,
+    });
+
+    const result = validateTransactionData(txn);
+    expect(result.valid).toBe(false);
+    expect(
+      result.validationErrors.some((e) => e.includes("cannot be greater than"))
+    ).toBe(true);
   });
 
   test("validation errors: invalid date, negative amount, and excessive discount", () => {
@@ -162,5 +196,62 @@ describe("Phase 2: Deterministic Transaction State Management", () => {
     expect(updated.program.name).toBe("deeptest1");
     expect(updated.status).toBe(TRANSACTION_STATES.READY_FOR_REVIEW);
     expect(updated.missingFields).toHaveLength(0);
+  });
+
+  describe("DD/MM/YYYY Date Normalization and Validation", () => {
+    test("normalizes various date formats to strict DD/MM/YYYY", () => {
+      expect(normalizeDateToDDMMYYYY("2026-10-16")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("2026/10/16")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("16/10/2026")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("16-10-2026")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("5/4/2026")).toBe("05/04/2026");
+      expect(normalizeDateToDDMMYYYY("16th october 2026")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("16th Oct 2026")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("October 16, 2026")).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY("1st January 2026")).toBe("01/01/2026");
+      expect(normalizeDateToDDMMYYYY(new Date(2026, 9, 16))).toBe("16/10/2026");
+      expect(normalizeDateToDDMMYYYY(null)).toBeNull();
+      expect(normalizeDateToDDMMYYYY(undefined)).toBeNull();
+      expect(normalizeDateToDDMMYYYY("")).toBe("");
+      expect(normalizeDateToDDMMYYYY("invalid-date")).toBe("invalid-date");
+    });
+
+    test("createNewTransaction and mergeRequestEntities automatically normalize invoiceDate to DD/MM/YYYY", () => {
+      const txn1 = createNewTransaction({
+        vendorName: "Vendor 1",
+        programName: "Prog 1",
+        invoiceNumber: "INV-100",
+        invoiceDate: "2026-10-16",
+        invoiceAmount: 20000,
+        discountAmount: 20000,
+      });
+      expect(txn1.invoice.date).toBe("16/10/2026");
+      expect(validateTransactionData(txn1).valid).toBe(true);
+
+      const txn2 = createNewTransaction({
+        vendorName: "Vendor 1",
+        programName: "Prog 1",
+        invoiceNumber: "INV-101",
+        invoiceAmount: 20000,
+        discountAmount: 20000,
+      });
+      const merged = mergeRequestEntities(txn2, { invoiceDate: "16th october 2026" });
+      expect(merged.invoice.date).toBe("16/10/2026");
+      expect(validateTransactionData(merged).valid).toBe(true);
+    });
+
+    test("validateTransactionData rejects invalid calendar dates or non-DD/MM/YYYY strings", () => {
+      const txn = createNewTransaction({
+        vendorName: "Vendor 1",
+        programName: "Prog 1",
+        invoiceNumber: "INV-100",
+        invoiceAmount: 20000,
+        discountAmount: 20000,
+      });
+      txn.invoice.date = "32/13/2026";
+      const res = validateTransactionData(txn);
+      expect(res.valid).toBe(false);
+      expect(res.validationErrors).toContain("Invoice Date contains an invalid calendar date.");
+    });
   });
 });

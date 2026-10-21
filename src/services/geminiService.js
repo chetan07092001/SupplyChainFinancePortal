@@ -6,6 +6,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { TOOL_REGISTRY } from "./businessTools";
+import { normalizeDateToDDMMYYYY } from "./transactionState";
 
 let _ai = null;
 
@@ -25,6 +26,39 @@ export function resetAIClient() {
 }
 
 const PRIMARY_MODEL = process.env.REACT_APP_GEMINI_MODEL || "gemini-3.8-flash";
+
+/**
+ * Utility to prevent API requests from hanging indefinitely.
+ */
+function withTimeout(promise, ms = 25000, errorMsg = "Operation timed out") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms)),
+  ]);
+}
+
+/**
+ * Executes generateContent with thinkingConfig optimization,
+ * with graceful retry if thinkingConfig is not supported on the target variant.
+ */
+async function safeGenerateContent(ai, requestConfig) {
+  try {
+    return await ai.models.generateContent(requestConfig);
+  } catch (err) {
+    if (requestConfig.config?.thinkingConfig) {
+      console.warn(
+        "Retrying generateContent without thinkingConfig due to error:",
+        err.message || err
+      );
+      const { thinkingConfig, ...restConfig } = requestConfig.config;
+      return await ai.models.generateContent({
+        ...requestConfig,
+        config: restConfig,
+      });
+    }
+    throw err;
+  }
+}
 
 /**
  * Tool Declarations for @google/genai SDK
@@ -105,9 +139,16 @@ export async function getFinancialInsights(stats) {
     Provide 3 concise, actionable bullet points for the business owner to improve their cash flow or risk profile. 
     Keep it professional and brief. Return strictly plain text.`;
 
-    const response = await ai.models.generateContent({
+    const response = await safeGenerateContent(ai, {
       model: PRIMARY_MODEL,
       contents: prompt,
+      config: {
+        maxOutputTokens: 300,
+        temperature: 0.2,
+        thinkingConfig: {
+          thinkingLevel: "low",
+        },
+      },
     });
 
     return response.text || "Unable to generate insights at this time.";
@@ -135,12 +176,17 @@ Your task is to answer user queries about invoice financing, settlement statuses
 Provide direct, professional, and accurate answers.
 Never hallucinate bank account numbers, secret OTPs, or fictitious approval states.`;
 
-    const response = await ai.models.generateContent({
+    const response = await safeGenerateContent(ai, {
       model: PRIMARY_MODEL,
       contents: userInput,
       config: {
         systemInstruction,
         responseMimeType: "application/json",
+        maxOutputTokens: 500,
+        temperature: 0.1,
+        thinkingConfig: {
+          thinkingLevel: "low",
+        },
       },
     });
 
@@ -184,7 +230,15 @@ function buildAlternatingContents(history = [], currentUserParts = []) {
   const raw = (history || [])
     .map((m) => {
       const role = m.role === "assistant" || m.role === "model" ? "model" : "user";
-      const text = typeof m.content === "string" ? m.content.trim() : JSON.stringify(m.content);
+      let text = typeof m.content === "string" ? m.content.trim() : JSON.stringify(m.content);
+      // Strip markdown tables, dividers, and bullet lists from history to drastically minimize tokens
+      text = text
+        .replace(/\|[^\n]+\|\n?/g, "")
+        .replace(/•\s[^\n]+\n?/g, "")
+        .trim();
+      if (text.length > 250) {
+        text = text.slice(0, 250) + "...";
+      }
       return text ? { role, text } : null;
     })
     .filter(Boolean);
@@ -210,8 +264,8 @@ function buildAlternatingContents(history = [], currentUserParts = []) {
     clean.pop();
   }
 
-  // Keep up to 6 turns of context
-  const trimmed = clean.slice(-6);
+  // Keep up to 4 turns (2 user, 2 model) for fast and token-efficient processing
+  const trimmed = clean.slice(-4);
   if (trimmed.length > 0 && trimmed[0].role === "model") {
     trimmed.shift();
   }
@@ -258,7 +312,7 @@ OUTPUT SCHEMA (JSON ONLY):
   "invoices": [
     {
       "invoiceNumber": "<exact string on document>",
-      "invoiceDate": "<DD/MM/YYYY or YYYY-MM-DD>",
+      "invoiceDate": "<DD/MM/YYYY format only, e.g. 16/10/2026. Convert any other scanned date format to DD/MM/YYYY>",
       "invoiceAmount": <exact numeric amount>,
       "discountAmount": <exact numeric discount or null if not stated>,
       "vendorName": "<vendor/supplier name or null>",
@@ -270,29 +324,38 @@ OUTPUT SCHEMA (JSON ONLY):
 }`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                data: fileData.data,
-                mimeType: fileData.mimeType || "application/pdf",
+    const response = await withTimeout(
+      safeGenerateContent(ai, {
+        model: PRIMARY_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  data: fileData.data,
+                  mimeType: fileData.mimeType || "application/pdf",
+                },
               },
-            },
-            {
-              text: "Extract all invoice data from this document accurately.",
-            },
-          ],
+              {
+                text: "Extract all invoice data from this document accurately.",
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          maxOutputTokens: 1000,
+          temperature: 0.1,
+          thinkingConfig: {
+            thinkingLevel: "low",
+          },
         },
-      ],
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-      },
-    });
+      }),
+      45000,
+      "Document OCR extraction timed out after 45s"
+    );
 
     const parsed = safeJsonParse(response.text || "{}");
     const rawInvoices = parsed.invoices || [];
@@ -366,18 +429,28 @@ export async function processNexusIntent(
   const systemInstruction = `You are Nexus AI, an intelligent Supply Chain Finance assistant.
 You assist buyers and vendors with invoice financing, program selection, loan bookings, and transaction history retrieval.
 
+CRITICAL SUPPLY CHAIN FINANCE (SCF) DOMAIN KNOWLEDGE:
+- In Supply Chain Finance / Invoice Discounting, "discountAmount" represents the FINANCED / DISBURSED AMOUNT (the net proceeds funded to the vendor upon discounting the invoice).
+- "discountAmount" is NOT a deduction or retail rebate that is subtracted from the invoice. It IS the financed loan amount!
+- For example, if invoiceAmount is 20,000 and discountAmount is 20,000, this means 100% of the invoice is being financed (disbursed amount = 20,000). This is completely VALID, normal, and standard in SCF.
+- NEVER state that "financed amount would be zero" or that "discount amount matches invoice amount so financing is zero".
+- discountAmount can equal invoiceAmount (100% financing) or be less than invoiceAmount (partial financing). It cannot exceed invoiceAmount.
+
 YOUR OBJECTIVES:
 1. Identify the user's intent:
    - LOAN_REQUEST: User wants to finance an invoice or is providing invoice details.
    - CORRECTION: User is explicitly correcting an invoice detail (e.g., "Change the amount to 240000").
    - TRANSACTION_INQUIRY: User is requesting past or recent transactions (e.g., "Show my latest transactions", "Show earliest 5 records", "Fetch transactions for program PROG-001").
+   - PROGRAM_INQUIRY: User is asking for a list of available financing programs, program details, or what programs exist (e.g., "give me a list of all my programs", "show available programs", "what programs do you have for Vendor 1").
    - LOAN_INQUIRY: User is asking about general financing terms, limits, or general portal information.
    - CHAT: General conversational greeting or assistance.
 2. Extract any entities explicitly provided in the latest user input:
    - vendorName: Vendor / Spoke name
    - programName: Financing program name
    - invoiceNumber: Invoice reference number
-   - invoiceDate: Date string (DD/MM/YYYY or YYYY-MM-DD)
+   - invoiceDate: Date string strictly in DD/MM/YYYY format (e.g. 16/10/2026).
+     * The backend strictly requires DD/MM/YYYY. If the user provides a natural language date (such as "16th october 2026", "October 16 2026") or ISO format ("2026-10-16"), you MUST convert it to DD/MM/YYYY with two-digit day and month.
+     * In your conversational response message, always format any invoice date as DD/MM/YYYY.
    - invoiceAmount: Numeric value (do not guess!)
    - discountAmount: Numeric value (do not guess! If not explicitly stated, return null)
    - currency: Currency code (e.g. INR)
@@ -392,12 +465,12 @@ YOUR OBJECTIVES:
 
 OUTPUT JSON FORMAT:
 {
-  "intent": "LOAN_REQUEST" | "CORRECTION" | "TRANSACTION_INQUIRY" | "LOAN_INQUIRY" | "CHAT",
+  "intent": "LOAN_REQUEST" | "CORRECTION" | "TRANSACTION_INQUIRY" | "PROGRAM_INQUIRY" | "LOAN_INQUIRY" | "CHAT",
   "entities": {
     "vendorName": string | null,
     "programName": string | null,
     "invoiceNumber": string | null,
-    "invoiceDate": string | null,
+    "invoiceDate": string | null, // Strictly DD/MM/YYYY format, e.g. "16/10/2026"
     "invoiceAmount": number | null,
     "discountAmount": number | null,
     "currency": string | null,
@@ -429,14 +502,23 @@ OUTPUT JSON FORMAT:
   const fallbackTxnParams = extractTransactionParamsFromText(userInput);
 
   try {
-    const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
-      contents,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-      },
-    });
+    const response = await withTimeout(
+      safeGenerateContent(ai, {
+        model: PRIMARY_MODEL,
+        contents,
+        config: {
+          systemInstruction,
+          responseMimeType: "application/json",
+          maxOutputTokens: 600,
+          temperature: 0.1,
+          thinkingConfig: {
+            thinkingLevel: "low",
+          },
+        },
+      }),
+      20000,
+      "Natural language understanding timed out after 20s"
+    );
 
     const parsed = safeJsonParse(response.text || "{}");
     const detectedIntent = parsed.intent || "CHAT";
@@ -448,6 +530,10 @@ OUTPUT JSON FORMAT:
       ...(fallbackTxnParams.program ? { program: fallbackTxnParams.program } : {}),
     };
 
+    if (mergedEntities.invoiceDate) {
+      mergedEntities.invoiceDate = normalizeDateToDDMMYYYY(mergedEntities.invoiceDate);
+    }
+
     return {
       type: detectedIntent,
       entities: mergedEntities,
@@ -457,11 +543,27 @@ OUTPUT JSON FORMAT:
     };
   } catch (error) {
     console.error("processNexusIntent Error:", error);
+    const isProgQuery =
+      /\b(program|programs)\b/i.test(userInput) &&
+      /\b(list|show|give|what|available|all|view|get|tell|details|fetch)\b/i.test(userInput) &&
+      !/\b(transaction|transactions|txn|txns)\b/i.test(userInput);
+
+    if (isProgQuery) {
+      return {
+        type: "PROGRAM_INQUIRY",
+        entities: {},
+        isExplicitCorrection: false,
+        isNewRequest: false,
+        message: "Retrieving program details.",
+      };
+    }
+
     const isTxnQuery =
       Boolean(fallbackTxnParams.ordering) ||
       Boolean(fallbackTxnParams.limit) ||
       Boolean(fallbackTxnParams.vendorCode) ||
-      Boolean(fallbackTxnParams.program) ||
+      (Boolean(fallbackTxnParams.program) &&
+        /\b(transaction|transactions|txn|txns)\b/i.test(userInput)) ||
       /\b(transaction|transactions|txn|txns)\b/i.test(userInput);
 
     if (isTxnQuery) {
@@ -523,10 +625,26 @@ export function extractTransactionParamsFromText(text) {
   }
 
   const progMatch =
-    clean.match(/\b(?:program|programId|prog)\s*(?:is|:|=)?\s*([A-Za-z0-9_-]+)\b/i) ||
+    clean.match(/\b(?:program|programId|prog)\b\s*(?:is|:|=)\s*([A-Za-z0-9_-]+)\b/i) ||
+    clean.match(/\b(?:use|under|for|with)\s+program\s+([A-Za-z0-9_-]+)\b/i) ||
     clean.match(/\b(PROG-[A-Za-z0-9_-]+)\b/i);
   if (progMatch && progMatch[1]) {
-    extracted.program = progMatch[1].trim();
+    const candidate = progMatch[1].trim();
+    const stopWords = [
+      "details",
+      "list",
+      "name",
+      "names",
+      "info",
+      "information",
+      "available",
+      "all",
+      "my",
+      "the",
+    ];
+    if (!stopWords.includes(candidate.toLowerCase())) {
+      extracted.program = candidate;
+    }
   }
 
   return extracted;

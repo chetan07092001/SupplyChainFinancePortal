@@ -17,6 +17,7 @@ import {
   FIELD_PROVENANCE,
   validateTransactionData,
   transitionTransaction,
+  normalizeDateToDDMMYYYY,
 } from "./transactionState";
 
 /**
@@ -174,7 +175,7 @@ export async function createLoanWorkItemTool({ transaction, batchTransactions = 
     return {
       invoiceNumber: String(inv.number).trim(),
       invoiceAmount: String(inv.amount),
-      invoiceDate: String(inv.date).trim(),
+      invoiceDate: normalizeDateToDDMMYYYY(inv.date) || String(inv.date || "").trim(),
       vendorCode: ven.code || "",
       anchorCode: anc.code || "",
       vendorAccNum: ven.accountNumber || "",
@@ -314,7 +315,7 @@ export async function bookLoanTool({ transaction, batchTransactions = [] }) {
     return {
       invoiceNumber: String(inv.number).trim(),
       invoiceAmount: String(inv.amount),
-      invoiceDate: String(inv.date).trim(),
+      invoiceDate: normalizeDateToDDMMYYYY(inv.date) || String(inv.date || "").trim(),
       vendorCode: ven.code || "",
       anchorCode: anc.code || "",
       vendorAccNum: ven.accountNumber || "",
