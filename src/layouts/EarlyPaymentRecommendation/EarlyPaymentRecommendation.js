@@ -10,21 +10,16 @@ import DashboardNavbar from "examples/Navbars/DashboardNavbar";
 import DataTable from "examples/Tables/DataTable";
 import EarlyPaymentData from "./data";
 
-const blankCardStyle = {
-  p: 2,
-  borderRadius: "12px",
-  minHeight: 92,
-  border: "1px solid #e6e9ee",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-
 function EarlyPaymentRecommendation() {
-  const { columns, rows, onfetchData, loading } = EarlyPaymentData();
+  const { columns, rows, onfetchData, filterRows, loading } = EarlyPaymentData();
   const [filter, setFilter] = useState("");
 
-  const handleClear = () => setFilter("");
+  const handleFilter = () => filterRows(filter);
+
+  const handleClear = () => {
+    setFilter("");
+    filterRows("");
+  };
 
   useEffect(() => {
     if (typeof onfetchData === "function") onfetchData();
@@ -35,37 +30,7 @@ function EarlyPaymentRecommendation() {
       <DashboardNavbar />
 
       <MDBox py={3}>
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4} lg={4}>
-            <Card>
-              <MDBox sx={blankCardStyle}>
-                <MDTypography variant="subtitle2" color="text">
-                  {/* blank for future */}
-                </MDTypography>
-              </MDBox>
-            </Card>
-          </Grid>
-          <Grid item xs={12} md={4} lg={4}>
-            <Card>
-              <MDBox sx={blankCardStyle}>
-                <MDTypography variant="subtitle2" color="text">
-                  {/* blank for future */}
-                </MDTypography>
-              </MDBox>
-            </Card>
-          </Grid>
-          <Grid item xs={12} md={4} lg={4}>
-            <Card>
-              <MDBox sx={blankCardStyle}>
-                <MDTypography variant="subtitle2" color="text">
-                  {/* blank for future */}
-                </MDTypography>
-              </MDBox>
-            </Card>
-          </Grid>
-        </Grid>
-
-        <MDBox mt={4}>
+        <MDBox>
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <Card>
@@ -77,12 +42,25 @@ function EarlyPaymentRecommendation() {
                       size="small"
                       value={filter}
                       onChange={(e) => setFilter(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleFilter();
+                      }}
                       style={{ width: 260 }}
                     />
-                    <MDButton color="info" variant="contained" onClick={() => {}}>
+                    <MDButton
+                      color="info"
+                      variant="contained"
+                      onClick={handleFilter}
+                      disabled={loading}
+                    >
                       Filter
                     </MDButton>
-                    <MDButton color="dark" variant="outlined" onClick={handleClear}>
+                    <MDButton
+                      color="dark"
+                      variant="outlined"
+                      onClick={handleClear}
+                      disabled={loading}
+                    >
                       Clear
                     </MDButton>
                   </MDBox>
