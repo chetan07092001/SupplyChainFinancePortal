@@ -32,7 +32,7 @@ const ApprovePo = lazy(() => import("layouts/ApprovePO/Approvepo"));
 const POStatus = lazy(() => import("layouts/POStatus/POstatus"));
 const Amendment = lazy(() => import("layouts/Amendment/Amendment"));
 const newDashboard = lazy(() => import("layouts/NewDashboard/Dashboard"));
-
+const LimitInsights = lazy(() => import("layouts/LimitInsights/LimitInsights"));
 const CHUNK_RELOAD_KEY = "scfPortalChunkReload";
 
 class ChunkLoadErrorBoundary extends React.Component {
@@ -103,6 +103,9 @@ root.render(
                 <Route path="approve_PO" element={<ApprovePo />}></Route>
                 <Route path="PO_status" element={<POStatus />}></Route>
                 <Route path="amendment" element={<Amendment />}></Route>
+
+                <Route path="limit_insights" element={<LimitInsights />}></Route>
+
                 <Route path="E-onboarding" element={<EOnboarding />}></Route>
                 <Route
                   path="EarlyPaymentRecommendation"
