@@ -1,0 +1,26 @@
+[2026-10-26T06:17:41.742Z] [REQUEST]
+{
+  "input": "hi",
+  "hasFile": false,
+  "activeRequestId": "REQ-8b4f1532-07bf-4e66-955d-f47ffe13dcd4"
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-26T06:17:41.777Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "AI features are unavailable — set REACT_APP_GEMINI_API_KEY in .env to enable."
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-26T06:22:24.391Z] [REQUEST]
+{
+  "input": "hi",
+  "hasFile": false,
+  "activeRequestId": "REQ-1bb0ddf0-ebd6-4af7-82ee-e3d4d668ce66"
+}
+────────────────────────────────────────────────────────────────────────────────
+[2026-10-26T06:22:27.836Z] [RESPONSE]
+{
+  "type": "CLARIFICATION",
+  "message": "Hello! I am Nexus AI, your Supply Chain Finance assistant. How can I assist you today with invoice financing, program details, or transaction inquiries?"
+}
+────────────────────────────────────────────────────────────────────────────────

@@ -60,7 +60,21 @@ let routes = [
   },
   {
     type: "collapse",
-    name: "Early Payment Recommendation",
+    name: (
+      <span
+        style={{
+          display: "inline-block",
+          width: "180px",
+          whiteSpace: "normal",
+          lineHeight: 1.5,
+          overflowWrap: "break-word",
+        }}
+      >
+        Early Payment
+        <br />
+        Recommendation
+      </span>
+    ),
     key: "Early-Payment-Recommendation",
     icon: <Icon fontSize="small">playlist_add_check_icon</Icon>,
     route: "EarlyPaymentRecommendation",

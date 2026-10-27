@@ -9,7 +9,6 @@ import {
   IconButton,
   CircularProgress,
   Chip,
-  Tooltip,
   Table,
   TableBody,
   TableContainer,
@@ -83,6 +82,35 @@ StatusBadge.propTypes = {
 
 StatusBadge.defaultProps = {
   status: null,
+};
+
+// ── Relevant Insight Cell (2-line wrap) ───────────────────────────────────────
+function SpokeInsightCell({ value }) {
+  const text =
+    value?.props?.children ?? (value === null || value === undefined ? "—" : String(value));
+  return (
+    <MDBox
+      sx={{
+        minWidth: "300px",
+        maxWidth: "380px",
+        whiteSpace: "normal",
+        wordBreak: "break-word",
+        lineHeight: 1.7,
+      }}
+    >
+      <MDTypography variant="caption" color="text" fontWeight="medium">
+        {text}
+      </MDTypography>
+    </MDBox>
+  );
+}
+
+SpokeInsightCell.propTypes = {
+  value: PropTypes.oneOfType([PropTypes.node, PropTypes.string, PropTypes.number]),
+};
+
+SpokeInsightCell.defaultProps = {
+  value: null,
 };
 
 // ── Format numbers ────────────────────────────────────────────────────────────
@@ -252,11 +280,21 @@ function LimitInsights() {
   }, []);
 
   // Build columns for the spoke detail table
-  const spokeColumns = SPOKE_COLUMNS.map(({ key, label }) => ({
-    Header: label,
-    accessor: key,
-    align: "left",
-  }));
+  const spokeColumns = SPOKE_COLUMNS.map(({ key, label }) => {
+    if (key === "relevantInsight") {
+      return {
+        Header: label,
+        accessor: key,
+        align: "left",
+        Cell: SpokeInsightCell,
+      };
+    }
+    return {
+      Header: label,
+      accessor: key,
+      align: "left",
+    };
+  });
 
   // Build rows for the spoke detail table
   const spokeTableRows = spokeRows.map((item, i) => {
@@ -267,23 +305,24 @@ function LimitInsights() {
         row[key] = <StatusBadge key={`${i}-s`} status={val} />;
       } else if (key === "relevantInsight") {
         row[key] = (
-          <Tooltip key={`${i}-ri`} title={val || ""} placement="top" arrow>
-            <MDTypography
-              variant="caption"
-              color="text"
-              fontWeight="regular"
-              sx={{
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                maxWidth: 320,
-                cursor: "help",
-              }}
-            >
-              {val || "—"}
-            </MDTypography>
-          </Tooltip>
+          <MDTypography
+            key={`${i}-ri`}
+            variant="caption"
+            color="text"
+            fontWeight="medium"
+            sx={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              whiteSpace: "normal",
+              wordBreak: "break-word",
+              minWidth: "280px",
+              lineHeight: 1.6,
+            }}
+          >
+            {val || "—"}
+          </MDTypography>
         );
       } else {
         row[key] = (
