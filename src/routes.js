@@ -15,9 +15,12 @@ import Checker from "layouts/Checker/Checker";
 import UploadData from "layouts/UploadData/UploadData";
 import SupplierReview from "layouts/SupplierReview/SupplierReview";
 import Invoice from "layouts/Invoice/Invoice";
+import InvoiceManagement from "layouts/Invoice Management/InvoiceManagement";
 import UploadPo from "layouts/UploadPO/UploadPo";
 import Approvepo from "layouts/ApprovePO/Approvepo";
+import ApproveInvoice from "layouts/Approve Invoice/ApproveInvoice";
 import POStatus from "layouts/POStatus/POstatus";
+import InvoiceStatus from "layouts/Invoice Status/InvoiceStatus";
 import Amendment from "layouts/Amendment/Amendment";
 import EOnboarding from "layouts/E-onboarding/E-onboarding";
 import AnchorMaker from "layouts/E-onboarding/AnchorMaker";
@@ -462,5 +465,32 @@ if (
   routes.push(newData);
   routes.push(newData2);
 }
+
+routes.push(
+  {
+    type: "collapse",
+    name: "Invoice Management",
+    key: "Invoice Management",
+    icon: <Icon fontSize="small">receipt_long</Icon>,
+    route: "invoice_management",
+    component: <InvoiceManagement />,
+  },
+  {
+    type: "collapse",
+    name: "Approve Invoice",
+    key: "Approve Invoice",
+    icon: <Icon fontSize="small">approval</Icon>,
+    route: "approve_invoice",
+    component: <ApproveInvoice />,
+  },
+  {
+    type: "collapse",
+    name: "Invoice Status",
+    key: "Invoice Status",
+    icon: <Icon fontSize="small">fact_check</Icon>,
+    route: "invoice_status",
+    component: <InvoiceStatus />,
+  }
+);
 
 export default routes;

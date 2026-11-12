@@ -27,9 +27,12 @@ const EarlyPaymentRecommendation = lazy(() =>
 );
 const SupplierReview = lazy(() => import("layouts/SupplierReview/SupplierReview"));
 const Invoice = lazy(() => import("layouts/Invoice/Invoice"));
+const InvoiceManagement = lazy(() => import("layouts/Invoice Management/InvoiceManagement"));
 const UploadPO = lazy(() => import("layouts/UploadPO/UploadPo"));
 const ApprovePo = lazy(() => import("layouts/ApprovePO/Approvepo"));
+const ApproveInvoice = lazy(() => import("layouts/Approve Invoice/ApproveInvoice"));
 const POStatus = lazy(() => import("layouts/POStatus/POstatus"));
+const InvoiceStatus = lazy(() => import("layouts/Invoice Status/InvoiceStatus"));
 const Amendment = lazy(() => import("layouts/Amendment/Amendment"));
 const newDashboard = lazy(() => import("layouts/NewDashboard/Dashboard"));
 const LimitInsights = lazy(() => import("layouts/LimitInsights/LimitInsights"));
@@ -99,6 +102,9 @@ root.render(
                 <Route path="checker" element={<Checker />}></Route>
                 <Route path="SupplierReview" element={<SupplierReview />}></Route>
                 <Route path="invoice" element={<Invoice />}></Route>
+                <Route path="invoice_management" element={<InvoiceManagement />}></Route>
+                <Route path="approve_invoice" element={<ApproveInvoice />}></Route>
+                <Route path="invoice_status" element={<InvoiceStatus />}></Route>
                 <Route path="upload_PO" element={<UploadPO />}></Route>
                 <Route path="approve_PO" element={<ApprovePo />}></Route>
                 <Route path="PO_status" element={<POStatus />}></Route>
