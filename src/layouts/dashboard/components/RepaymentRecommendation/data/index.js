@@ -20,6 +20,7 @@ const formatAmount = (value) => {
 const transformData = (data) =>
   data.slice(0, 3).map((item, index) => ({
     rank: index + 1,
+    spokeName: item.spokeName || item.supplierName || item.spoke || "-",
     referenceNo: item.referenceNo || "-",
     totalTenor: formatDays(item.tenor),
     tenorUtilized: formatDays(item.tenorUtilised),

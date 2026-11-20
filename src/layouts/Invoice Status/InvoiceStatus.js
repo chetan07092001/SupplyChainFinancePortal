@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   Card,
-  CircularProgress,
   FormControl,
   Grid,
   IconButton,
@@ -29,12 +28,10 @@ const FINANCING_PRODUCTS = [
   { label: "Deep Tier Financing", value: "dtf" },
   { label: "Factoring", value: "factoring" },
   { label: "Payable Financing", value: "pf" },
-  { label: "Purchase Bill Discounting", value: "purchase" },
   { label: "Purchase Invoice Financing", value: "pif" },
   { label: "Purchase Order Financing", value: "pof" },
   { label: "Receivable Financing", value: "receivable" },
   { label: "Reverse Factoring", value: "rf" },
-  { label: "Sales Bill Discounting", value: "sales" },
   { label: "Sales Invoice Financing", value: "sif" },
   { label: "Vendor Finance", value: "vendor" },
 ];
@@ -272,13 +269,9 @@ function InvoiceStatus() {
       const wiName = response.data?.wiName;
       const sessionId = response.data?.sessionId;
 
-      if (wiName && sessionId) {
-        window.open(
-          `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=1&SessionId=${sessionId}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
-        );
-      }
+      setIsSubmitting(false);
 
-      await showCompactResultPopup({
+      const popupResult = await showCompactResultPopup({
         title: "Work Item Created",
         text: wiName
           ? `Work item ${wiName} created successfully for ${payload.length} invoice(s).`
@@ -288,7 +281,14 @@ function InvoiceStatus() {
         background: "#ffffff",
         color: "#008533",
         confirmButtonColor: "#008533",
+        confirmButtonText: "Open Workitem",
       });
+
+      if (popupResult.isConfirmed && wiName && sessionId) {
+        window.open(
+          `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=1&SessionId=${sessionId}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
+        );
+      }
 
       setSelectedRows({});
       setFinancingProduct("");
@@ -452,7 +452,6 @@ function InvoiceStatus() {
                 </Select>
               </FormControl>
             )}
-            {isSubmitting && <CircularProgress size={24} sx={{ color: "#292075" }} />}
           </Box>
           <IconButton
             aria-label="Filter invoice status"

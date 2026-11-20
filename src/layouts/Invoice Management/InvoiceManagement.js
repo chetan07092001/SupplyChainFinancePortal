@@ -16,14 +16,22 @@ const blueButtonSx = {
   "&.Mui-disabled": {
     backgroundColor: "#292075 !important",
     color: "#ffffff !important",
-    opacity: 1,
+    opacity: 0.6,
   },
   "& .MuiButton-startIcon": { color: "#ffffff" },
 };
 
 function InvoiceManagement() {
-  const { columns, rows, onfetchData, handleFileUpload, submitData, loading, selectedCount } =
-    InvoiceData();
+  const {
+    columns,
+    rows,
+    onfetchData,
+    handleFileUpload,
+    submitData,
+    loading,
+    uploadedCount,
+    selectedCount,
+  } = InvoiceData();
 
   useEffect(() => {
     if (typeof onfetchData === "function") onfetchData();
@@ -104,13 +112,12 @@ function InvoiceManagement() {
               </MDBox>
               <Box m={2} sx={{ display: "flex", flexDirection: "row-reverse" }}>
                 <Button
-                  component="label"
-                  role={undefined}
                   variant="contained"
                   onClick={submitData}
-                  disabled={loading || selectedCount === 0}
+                  disabled={
+                    loading || (uploadedCount != null ? uploadedCount === 0 : rows.length === 0)
+                  }
                   sx={{ ...blueButtonSx, height: 40 }}
-                  tabIndex={-1}
                 >
                   Send for approval
                 </Button>

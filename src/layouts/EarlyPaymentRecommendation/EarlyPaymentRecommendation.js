@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
 import MDBox from "components/MDBox";
@@ -24,6 +24,8 @@ function EarlyPaymentRecommendation() {
   useEffect(() => {
     if (typeof onfetchData === "function") onfetchData();
   }, []);
+
+  const tableData = useMemo(() => ({ columns, rows }), [columns, rows]);
 
   return (
     <DashboardLayout>
@@ -70,7 +72,7 @@ function EarlyPaymentRecommendation() {
                   <DataTable
                     canSearch
                     showTotalEntries
-                    table={{ columns, rows }}
+                    table={tableData}
                     entriesPerPage={{ defaultValue: 10, entries: [5, 10, 15, 20] }}
                   />
                 </MDBox>

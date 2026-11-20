@@ -23,31 +23,33 @@ const ORANGE = "#f79009";
 const headCellStyle = {
   backgroundColor: NAVY,
   color: "#ffffff !important",
-  fontSize: "0.78rem",
+  fontSize: "0.74rem",
   fontWeight: 700,
   textAlign: "center",
   borderRight: "1px solid rgba(255,255,255,0.18)",
   borderBottom: "none",
-  padding: "10px 12px",
+  padding: "5px 8px",
   whiteSpace: "nowrap",
 };
 
 const milestoneCellStyle = (bg) => ({
   ...headCellStyle,
   backgroundColor: bg,
+  padding: "4px 6px",
+  fontSize: "0.7rem",
 });
 
 const bodyCellStyle = {
-  fontSize: "0.8rem",
+  fontSize: "0.74rem",
   textAlign: "center",
   borderBottom: "1px solid #e6e9ee",
-  padding: "10px 12px",
+  padding: "5px 8px",
   whiteSpace: "nowrap",
 };
 
 function MilestoneHeader({ icon, label }) {
   return (
-    <MDBox display="flex" alignItems="center" justifyContent="center" gap={0.75}>
+    <MDBox display="flex" alignItems="center" justifyContent="center" gap={0.5}>
       {icon}
       <span>{label}</span>
     </MDBox>
@@ -61,12 +63,12 @@ MilestoneHeader.propTypes = {
 
 function MilestoneValue({ icon, value, color, bold }) {
   return (
-    <MDBox display="flex" alignItems="center" justifyContent="center" gap={0.75}>
+    <MDBox display="flex" alignItems="center" justifyContent="center" gap={0.5}>
       {icon}
       <MDTypography
         variant="caption"
         fontWeight={bold ? "bold" : "regular"}
-        sx={{ color, fontSize: "0.8rem" }}
+        sx={{ color, fontSize: "0.74rem" }}
       >
         {value}
       </MDTypography>
@@ -110,46 +112,49 @@ function RepaymentRecommendation() {
 
   return (
     <Card sx={{ height: "100%" }}>
-      <MDBox px={2} pt={2} pb={1}>
-        <MDTypography variant="h6" textTransform="capitalize">
+      <MDBox px={2} pt={1.5} pb={0.5}>
+        <MDTypography variant="h6" textTransform="capitalize" sx={{ fontSize: "0.95rem" }}>
           Repayment Recommendation
         </MDTypography>
       </MDBox>
 
-      <MDBox px={2} pb={2}>
+      <MDBox px={2} pb={1.5}>
         <TableContainer sx={{ boxShadow: "none", borderRadius: "6px" }}>
           <Table sx={{ borderCollapse: "collapse" }}>
             <TableHead sx={{ display: "table-header-group" }}>
               <TableRow>
-                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "10%" }}>
+                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "6%" }}>
                   Rank
                 </TableCell>
-                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "22%" }}>
+                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "18%" }}>
+                  Spoke Name
+                </TableCell>
+                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "20%" }}>
                   Reference No.
                 </TableCell>
-                <TableCell colSpan={3} sx={headCellStyle}>
+                <TableCell colSpan={3} sx={{ ...headCellStyle, width: "33%" }}>
                   Tenor Milestones
                 </TableCell>
-                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "22%", borderRight: "none" }}>
+                <TableCell rowSpan={2} sx={{ ...headCellStyle, width: "23%", borderRight: "none" }}>
                   Utilized Amount (USD)
                 </TableCell>
               </TableRow>
               <TableRow>
-                <TableCell sx={milestoneCellStyle(BLUE)}>
+                <TableCell sx={{ ...milestoneCellStyle(BLUE), width: "11%", minWidth: "100px" }}>
                   <MilestoneHeader
-                    icon={<CalendarMonthIcon sx={{ fontSize: "1rem", color: "#ffffff" }} />}
+                    icon={<CalendarMonthIcon sx={{ fontSize: "0.82rem", color: "#ffffff" }} />}
                     label="Total Tenor"
                   />
                 </TableCell>
-                <TableCell sx={milestoneCellStyle(GREEN)}>
+                <TableCell sx={{ ...milestoneCellStyle(GREEN), width: "11%", minWidth: "100px" }}>
                   <MilestoneHeader
-                    icon={<CheckCircleIcon sx={{ fontSize: "1rem", color: "#ffffff" }} />}
+                    icon={<CheckCircleIcon sx={{ fontSize: "0.82rem", color: "#ffffff" }} />}
                     label="Tenor Utilized"
                   />
                 </TableCell>
-                <TableCell sx={milestoneCellStyle(ORANGE)}>
+                <TableCell sx={{ ...milestoneCellStyle(ORANGE), width: "11%", minWidth: "100px" }}>
                   <MilestoneHeader
-                    icon={<AccessTimeIcon sx={{ fontSize: "1rem", color: "#ffffff" }} />}
+                    icon={<AccessTimeIcon sx={{ fontSize: "0.82rem", color: "#ffffff" }} />}
                     label="Remaining Days"
                   />
                 </TableCell>
@@ -163,15 +168,15 @@ function RepaymentRecommendation() {
                   sx={{ backgroundColor: index % 2 === 1 ? "#f2f5fb" : "#ffffff" }}
                 >
                   <TableCell sx={bodyCellStyle}>
-                    <MDBox display="flex" alignItems="center" justifyContent="center" gap={1}>
+                    <MDBox display="flex" alignItems="center" justifyContent="center" gap={0.5}>
                       <MDTypography
                         variant="button"
                         fontWeight="bold"
-                        sx={{ color: BLUE, fontSize: "0.9rem" }}
+                        sx={{ color: BLUE, fontSize: "0.8rem" }}
                       >
                         {row.rank}
                       </MDTypography>
-                      {row.rank === 1 && <StarIcon sx={{ fontSize: "1rem", color: ORANGE }} />}
+                      {row.rank === 1 && <StarIcon sx={{ fontSize: "0.82rem", color: ORANGE }} />}
                     </MDBox>
                   </TableCell>
 
@@ -179,7 +184,17 @@ function RepaymentRecommendation() {
                     <MDTypography
                       variant="caption"
                       fontWeight="medium"
-                      sx={{ color: BLUE, fontSize: "0.8rem" }}
+                      sx={{ color: "#344767", fontSize: "0.74rem" }}
+                    >
+                      {row.spokeName}
+                    </MDTypography>
+                  </TableCell>
+
+                  <TableCell sx={bodyCellStyle}>
+                    <MDTypography
+                      variant="caption"
+                      fontWeight="medium"
+                      sx={{ color: BLUE, fontSize: "0.74rem" }}
                     >
                       {row.referenceNo}
                     </MDTypography>
@@ -187,21 +202,21 @@ function RepaymentRecommendation() {
 
                   <TableCell sx={bodyCellStyle}>
                     <MilestoneValue
-                      icon={<CalendarMonthIcon sx={{ fontSize: "1rem", color: BLUE }} />}
+                      icon={<CalendarMonthIcon sx={{ fontSize: "0.82rem", color: BLUE }} />}
                       value={row.totalTenor}
                     />
                   </TableCell>
 
                   <TableCell sx={bodyCellStyle}>
                     <MilestoneValue
-                      icon={<CheckCircleIcon sx={{ fontSize: "1rem", color: GREEN }} />}
+                      icon={<CheckCircleIcon sx={{ fontSize: "0.82rem", color: GREEN }} />}
                       value={row.tenorUtilized}
                     />
                   </TableCell>
 
                   <TableCell sx={bodyCellStyle}>
                     <MilestoneValue
-                      icon={<AccessTimeIcon sx={{ fontSize: "1rem", color: ORANGE }} />}
+                      icon={<AccessTimeIcon sx={{ fontSize: "0.82rem", color: ORANGE }} />}
                       value={row.remainingDays}
                       color="#e02424"
                       bold
@@ -212,7 +227,7 @@ function RepaymentRecommendation() {
                     <MDTypography
                       variant="caption"
                       fontWeight="medium"
-                      sx={{ color: "#344767", fontSize: "0.8rem" }}
+                      sx={{ color: "#344767", fontSize: "0.74rem" }}
                     >
                       {row.utilizedAmount}
                     </MDTypography>
@@ -222,8 +237,8 @@ function RepaymentRecommendation() {
 
               {!data.length && (
                 <TableRow>
-                  <TableCell colSpan={6} sx={bodyCellStyle}>
-                    <MDTypography variant="caption" color="text" sx={{ fontSize: "0.8rem" }}>
+                  <TableCell colSpan={7} sx={bodyCellStyle}>
+                    <MDTypography variant="caption" color="text" sx={{ fontSize: "0.75rem" }}>
                       {loading ? "Loading..." : "No records found"}
                     </MDTypography>
                   </TableCell>

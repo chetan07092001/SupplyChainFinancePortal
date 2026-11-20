@@ -1,7 +1,10 @@
 import MDTypography from "components/MDTypography";
 import Chip from "@mui/material/Chip";
 import { useState } from "react";
+import { Icon, IconButton } from "@mui/material";
+import axios from "axios";
 import { useFetchScfApi } from "customHook/useFetchScfApi";
+import { useSessionId } from "customHook/useSessionId";
 
 const statusColors = {
   DISBURSED: "#008533",
@@ -45,16 +48,42 @@ const statusChipStyle = (backgroundColor) => ({
   },
 });
 
+const viewDoc = async (item) => {
+  const wiName = item?.settlementReferenceNo || item?.winame;
+  console.log(wiName + " WID");
+
+  const token = localStorage.getItem("token");
+  let sID;
+  try {
+    const response = await axios.get("https://scfdemo.newgensoftware.net:8443/scf/fetchSessionId", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    sID = response.data;
+  } catch (error) {
+    sID = await useSessionId();
+  }
+  console.log(sID + " SID");
+
+  if (wiName && wiName !== "-") {
+    window.open(
+      `https://scfdemo.newgensoftware.net/webdesktop/login/mailloginclient.app?&CalledFrom=OPENWI&pid=${wiName}&wid=1&SessionId=${sID}&UserIndex=27&UserName=vijay&CabinetName=newgenibps`
+    );
+  }
+  console.log(item);
+};
+
 const transformData = (data) =>
   data.map((item, idx) =>
     Object.fromEntries(
       Object.entries({
         sno: idx + 1,
         winame: item.winame || "-",
-        referenceNo: item.referenceNo || "-",
-        settlementReferenceNo: item.settlementReferenceNo || "-",
         spokeName: item.spokeName || "-",
         spokeCode: item.spokeCode || "-",
+        referenceNo: item.referenceNo || "-",
+        settlementReferenceNo: item.settlementReferenceNo || "-",
         outstandingAmount:
           item.outstandingAmount != null
             ? Number(item.outstandingAmount).toLocaleString("en-IN", {
@@ -65,7 +94,23 @@ const transformData = (data) =>
         daysRemaining: item.daysRemaining != null ? item.daysRemaining : "-",
         transactionDate: item.transactionDate || "-",
         status: item.status || "-",
+        view: "view",
       }).map(([key, value]) => {
+        if (key === "view") {
+          return [
+            key,
+            <IconButton
+              key={key}
+              size="small"
+              disableRipple
+              color="inherit"
+              onClick={() => viewDoc(item)}
+            >
+              <Icon>visibility</Icon>
+            </IconButton>,
+          ];
+        }
+
         const statusColor = key === "status" ? getStatusColor(value) : undefined;
 
         return [
@@ -86,6 +131,25 @@ const transformData = (data) =>
       })
     )
   );
+
+const COLUMNS = [
+  { Header: "S.No", accessor: "sno", width: "7%", align: "left" },
+  { Header: "WI NAME", accessor: "winame", width: "15%", align: "left" },
+  { Header: "SPOKE NAME", accessor: "spokeName", width: "12%", align: "left" },
+  { Header: "SPOKE CODE", accessor: "spokeCode", width: "10%", align: "left" },
+  { Header: "REFERENCE NO.", accessor: "referenceNo", width: "12%", align: "left" },
+  {
+    Header: "SETTLEMENT REF. NO.",
+    accessor: "settlementReferenceNo",
+    width: "12%",
+    align: "left",
+  },
+  { Header: "OUTSTANDING AMOUNT", accessor: "outstandingAmount", width: "12%", align: "left" },
+  { Header: "DAYS REMAINING", accessor: "daysRemaining", width: "8%", align: "left" },
+  { Header: "TRANSACTION DATE", accessor: "transactionDate", width: "12%", align: "left" },
+  { Header: "STATUS", accessor: "status", width: "12%", align: "left" },
+  { Header: "VIEW", accessor: "view", width: "8%", align: "center" },
+];
 
 export default function DataTable() {
   const [sourceData, setSourceData] = useState([]);
@@ -140,24 +204,7 @@ export default function DataTable() {
   };
 
   return {
-    columns: [
-      { Header: "S.No", accessor: "sno", width: "5%", align: "left" },
-      { Header: "WI NAME", accessor: "winame", width: "15%", align: "left" },
-      { Header: "REFERENCE NO.", accessor: "referenceNo", width: "12%", align: "left" },
-      {
-        Header: "SETTLEMENT REF. NO.",
-        accessor: "settlementReferenceNo",
-        width: "12%",
-        align: "left",
-      },
-      { Header: "SPOKE NAME", accessor: "spokeName", width: "12%", align: "left" },
-      { Header: "SPOKE CODE", accessor: "spokeCode", width: "10%", align: "left" },
-      { Header: "OUTSTANDING AMOUNT", accessor: "outstandingAmount", width: "12%", align: "left" },
-      { Header: "DAYS REMAINING", accessor: "daysRemaining", width: "8%", align: "left" },
-      { Header: "TRANSACTION DATE", accessor: "transactionDate", width: "12%", align: "left" },
-      { Header: "STATUS", accessor: "status", width: "14%", align: "left" },
-    ],
-
+    columns: COLUMNS,
     rows,
     onfetchData,
     filterRows,
