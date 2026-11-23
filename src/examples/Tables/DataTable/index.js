@@ -158,21 +158,13 @@ function DataTable({
   };
 
   // Setting the entries starting point
-  const entriesStart = pageIndex === 0 ? pageIndex + 1 : pageIndex * pageSize + 1;
+  const entriesStart = rows.length === 0 ? 0 : pageIndex * pageSize + 1;
 
   // Setting the entries ending point
-  let entriesEnd;
-
-  if (pageIndex === 0) {
-    entriesEnd = pageSize;
-  } else if (pageIndex === pageOptions.length - 1) {
-    entriesEnd = rows.length;
-  } else {
-    entriesEnd = pageSize * (pageIndex + 1);
-  }
+  const entriesEnd = Math.min(pageSize * (pageIndex + 1), rows.length);
 
   return (
-    <TableContainer sx={{ boxShadow: "none" }}>
+    <MDBox>
       {entriesPerPage || canSearch ? (
         <MDBox display="flex" justifyContent="space-between" alignItems="center" p={3}>
           {entriesPerPage && (
@@ -201,7 +193,7 @@ function DataTable({
                 size="small"
                 fullWidth
                 onChange={({ currentTarget }) => {
-                  setSearch(search);
+                  setSearch(currentTarget.value);
                   onSearchChange(currentTarget.value);
                 }}
               />
@@ -209,44 +201,46 @@ function DataTable({
           )}
         </MDBox>
       ) : null}
-      <Table {...getTableProps()}>
-        <MDBox component="thead">
-          {headerGroups.map((headerGroup, key) => (
-            <TableRow key={key} {...headerGroup.getHeaderGroupProps()}>
-              {headerGroup.headers.map((column, idx) => (
-                <DataTableHeadCell
-                  key={idx}
-                  {...column.getHeaderProps(isSorted && column.getSortByToggleProps())}
-                  width={column.width ? column.width : "auto"}
-                  align={column.align ? column.align : "left"}
-                  sorted={setSortedValue(column)}
-                >
-                  {column.render("Header")}
-                </DataTableHeadCell>
-              ))}
-            </TableRow>
-          ))}
-        </MDBox>
-        <TableBody {...getTableBodyProps()}>
-          {page.map((row, key) => {
-            prepareRow(row);
-            return (
-              <TableRow key={key} {...row.getRowProps()}>
-                {row.cells.map((cell, idx) => (
-                  <DataTableBodyCell
+      <TableContainer sx={{ boxShadow: "none" }}>
+        <Table {...getTableProps()}>
+          <MDBox component="thead">
+            {headerGroups.map((headerGroup, key) => (
+              <TableRow key={key} {...headerGroup.getHeaderGroupProps()}>
+                {headerGroup.headers.map((column, idx) => (
+                  <DataTableHeadCell
                     key={idx}
-                    noBorder={noEndBorder && rows.length - 1 === key}
-                    align={cell.column.align ? cell.column.align : "left"}
-                    {...cell.getCellProps()}
+                    {...column.getHeaderProps(isSorted && column.getSortByToggleProps())}
+                    width={column.width ? column.width : "auto"}
+                    align={column.align ? column.align : "left"}
+                    sorted={setSortedValue(column)}
                   >
-                    {cell.render("Cell")}
-                  </DataTableBodyCell>
+                    {column.render("Header")}
+                  </DataTableHeadCell>
                 ))}
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+            ))}
+          </MDBox>
+          <TableBody {...getTableBodyProps()}>
+            {page.map((row, key) => {
+              prepareRow(row);
+              return (
+                <TableRow key={key} {...row.getRowProps()}>
+                  {row.cells.map((cell, idx) => (
+                    <DataTableBodyCell
+                      key={idx}
+                      noBorder={noEndBorder && rows.length - 1 === key}
+                      align={cell.column.align ? cell.column.align : "left"}
+                      {...cell.getCellProps()}
+                    >
+                      {cell.render("Cell")}
+                    </DataTableBodyCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <MDBox
         display="flex"
@@ -291,7 +285,7 @@ function DataTable({
           </MDPagination>
         )}
       </MDBox>
-    </TableContainer>
+    </MDBox>
   );
 }
 

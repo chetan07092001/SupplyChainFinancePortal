@@ -31,6 +31,7 @@ import reportsLineChartData from "layouts/dashboard/data/reportsLineChartData";
 
 // Dashboard components
 import Projects from "layouts/dashboard/components/Projects";
+import RepaymentRecommendation from "layouts/dashboard/components/RepaymentRecommendation";
 import WalletIcon from "@mui/icons-material/Wallet";
 import StackBarChart from "examples/Charts/BarCharts/StackBarChart";
 import PieChart from "examples/Charts/PieChart";
@@ -293,6 +294,13 @@ function Dashboard() {
             </MDBox>
           </Grid>
         </Grid>
+        <MDBox mt={2}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={12} lg={12}>
+              <RepaymentRecommendation />
+            </Grid>
+          </Grid>
+        </MDBox>
         <MDBox mt={2}>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6} lg={6} alignItems="center">

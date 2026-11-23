@@ -37,49 +37,61 @@ function DataTableHeadCell({ width, children, sorted, align, ...rest }) {
       px={3}
       sx={({ palette: { light }, borders: { borderWidth } }) => ({
         borderBottom: `${borderWidth[1]} solid ${light.main}`,
+        boxSizing: "border-box",
+        whiteSpace: "nowrap",
       })}
     >
       <MDBox
         {...rest}
-        position="relative"
-        textAlign={align}
+        display="inline-flex"
+        alignItems="center"
+        justifyContent={
+          align === "right" ? "flex-end" : align === "center" ? "center" : "flex-start"
+        }
         color="#7b809a"
         opacity={0.7}
         sx={({ typography: { size, fontWeightBold } }) => ({
           fontSize: size.xxs,
           fontWeight: fontWeightBold,
           textTransform: "uppercase",
-          cursor: sorted && "pointer",
-          userSelect: sorted && "none",
+          cursor: sorted ? "pointer" : "default",
+          userSelect: sorted ? "none" : "auto",
+          whiteSpace: "nowrap",
         })}
       >
-        {children}
+        <span>{children}</span>
         {sorted && (
           <MDBox
-            position="absolute"
-            top={0}
-            right={align !== "right" ? "16px" : 0}
-            left={align === "right" ? "-5px" : "unset"}
-            sx={({ typography: { size } }) => ({
-              fontSize: size.lg,
-            })}
+            component="span"
+            display="inline-flex"
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            ml={1}
+            sx={{ position: "relative", width: "12px", height: "14px", flexShrink: 0 }}
           >
-            <MDBox
-              position="absolute"
-              top={-6}
-              color={sorted === "asce" ? "text" : "secondary"}
-              opacity={sorted === "asce" ? 1 : 0.5}
+            <Icon
+              sx={{
+                position: "absolute",
+                top: "-5px",
+                fontSize: "14px !important",
+                color: sorted === "asce" ? "text.main" : "secondary.main",
+                opacity: sorted === "asce" ? 1 : 0.4,
+              }}
             >
-              <Icon>arrow_drop_up</Icon>
-            </MDBox>
-            <MDBox
-              position="absolute"
-              top={0}
-              color={sorted === "desc" ? "text" : "secondary"}
-              opacity={sorted === "desc" ? 1 : 0.5}
+              arrow_drop_up
+            </Icon>
+            <Icon
+              sx={{
+                position: "absolute",
+                bottom: "-5px",
+                fontSize: "14px !important",
+                color: sorted === "desc" ? "text.main" : "secondary.main",
+                opacity: sorted === "desc" ? 1 : 0.4,
+              }}
             >
-              <Icon>arrow_drop_down</Icon>
-            </MDBox>
+              arrow_drop_down
+            </Icon>
           </MDBox>
         )}
       </MDBox>

@@ -6,10 +6,11 @@ import { useFetchScfApi } from "customHook/useFetchScfApi";
 import { useSessionId } from "customHook/useSessionId";
 
 const viewDoc = async (item) => {
-  const wiName = item.wiName; // Change to match the API response
+  const wiName =
+    item.WIName || item.winame || item.wiName || item.__raw?.winame || item.__raw?.wiName || "";
   console.log(wiName + " WID");
 
-  const sID = item.sessionId; // Make sure to await for the session ID
+  const sID = item.sessionId || item.__raw?.sessionId || (await useSessionId());
   console.log(sID + " SID");
 
   window.open(
@@ -19,14 +20,14 @@ const viewDoc = async (item) => {
 };
 
 const transformData = (data) => {
-  return data.map((item) =>
+  return data.map((item, index) =>
     Object.fromEntries(
       Object.entries(item).map(([key, value]) => {
         if (key === "view") {
           return [
             key,
             <IconButton
-              key={`${item.WIName}-view`}
+              key={`${item.WIName || index}-view`}
               size="small"
               disableRipple
               color="inherit"
@@ -40,7 +41,7 @@ const transformData = (data) => {
         return [
           key,
           <MDTypography
-            key={`${item.WIName}-${key}`}
+            key={`${item.WIName || index}-${key}`}
             variant="caption"
             color="text"
             fontWeight="medium"
@@ -69,10 +70,18 @@ export default function AnchorCheckerData() {
 
       const fetched = await useFetchScfApi({ url });
 
-      const updatedData = fetched.map((item) => ({
-        ...item,
-        view: "view",
-      }));
+      const updatedData = Array.isArray(fetched)
+        ? fetched.map((item) => ({
+            WIName: item.WIName || item.winame || item.WIname || item.wiName || "",
+            uniqueCode: item.uniqueCode || item.uniquecode || "",
+            Name: item.Name || item.name || "",
+            LimitAmount: item.LimitAmount ?? item.limitAmount ?? "",
+            EOnboardingStatus: item.EOnboardingStatus ?? item.eonboardingStatus ?? "",
+            sessionId: item.sessionId || "",
+            __raw: item,
+            view: "view",
+          }))
+        : [];
 
       setRows(transformData(updatedData));
       return updatedData;

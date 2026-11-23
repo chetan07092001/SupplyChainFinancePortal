@@ -215,8 +215,9 @@ function DashboardNavbar({ absolute, light, isMini }) {
     // Remove the "/admin/" prefix
     const cleanedRoute = route.replace(/^\/admin\//, "");
 
-    // Replace underscores with spaces and capitalize each word
+    // Separate camel-case route names and replace underscores with spaces
     const formattedRoute = cleanedRoute
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
       .split("_") // Split by underscores
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize each word
       .join(" "); // Join the words with spaces

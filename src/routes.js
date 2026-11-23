@@ -15,15 +15,19 @@ import Checker from "layouts/Checker/Checker";
 import UploadData from "layouts/UploadData/UploadData";
 import SupplierReview from "layouts/SupplierReview/SupplierReview";
 import Invoice from "layouts/Invoice/Invoice";
+import InvoiceManagement from "layouts/Invoice Management/InvoiceManagement";
 import UploadPo from "layouts/UploadPO/UploadPo";
 import Approvepo from "layouts/ApprovePO/Approvepo";
+import ApproveInvoice from "layouts/Approve Invoice/ApproveInvoice";
 import POStatus from "layouts/POStatus/POstatus";
+import InvoiceStatus from "layouts/Invoice Status/InvoiceStatus";
 import Amendment from "layouts/Amendment/Amendment";
 import EOnboarding from "layouts/E-onboarding/E-onboarding";
 import AnchorMaker from "layouts/E-onboarding/AnchorMaker";
 import AnchorChecker from "layouts/E-onboarding/AnchorChecker";
 import DraftTab from "layouts/E-onboarding/DraftTab";
 import EarlyPaymentRecommendation from "layouts/EarlyPaymentRecommendation/EarlyPaymentRecommendation";
+import LimitInsights from "layouts/LimitInsights/LimitInsights";
 let routes = [
   {
     type: "collapse",
@@ -59,7 +63,21 @@ let routes = [
   },
   {
     type: "collapse",
-    name: "Early Payment Recommendation",
+    name: (
+      <span
+        style={{
+          display: "inline-block",
+          width: "180px",
+          whiteSpace: "normal",
+          lineHeight: 1.5,
+          overflowWrap: "break-word",
+        }}
+      >
+        Early Payment
+        <br />
+        Recommendation
+      </span>
+    ),
     key: "Early-Payment-Recommendation",
     icon: <Icon fontSize="small">playlist_add_check_icon</Icon>,
     route: "EarlyPaymentRecommendation",
@@ -89,21 +107,29 @@ let routes = [
     route: "draft",
     component: <Draft />,
   },
+  // {
+  //   type: "collapse",
+  //   name: "Invoice",
+  //   key: "Invoice",
+  //   icon: <Icon fontSize="small">receipticon</Icon>,
+  //   route: "invoice",
+  //   component: <Invoice />,
+  // },
+  // {
+  //   type: "collapse",
+  //   name: "Amendment",
+  //   key: "Amendment",
+  //   icon: <Icon fontSize="small">gavel</Icon>,
+  //   route: "amendment",
+  //   component: <Amendment />,
+  // },
   {
     type: "collapse",
-    name: "Invoice",
-    key: "Invoice",
-    icon: <Icon fontSize="small">receipticon</Icon>,
-    route: "invoice",
-    component: <Invoice />,
-  },
-  {
-    type: "collapse",
-    name: "Amendment",
-    key: "Amendment",
-    icon: <Icon fontSize="small">gavel</Icon>,
-    route: "amendment",
-    component: <Amendment />,
+    name: "Limit Insights",
+    key: "LimitInsights",
+    icon: <Icon fontSize="small">bar_chart</Icon>,
+    route: "limit_insights",
+    component: <LimitInsights />,
   },
   {
     type: "collapse",
@@ -182,7 +208,7 @@ if (!anchorMakerAllowed.includes(_currentUser)) {
   });
 }
 
-if (localStorage.getItem("username").toLowerCase() == "alex") {
+if ((localStorage.getItem("username") || "").toLowerCase() == "alex") {
   routes = routes.filter((route) => {
     if (
       route.name === "Dashboard" ||
@@ -198,7 +224,7 @@ if (localStorage.getItem("username").toLowerCase() == "alex") {
   });
 }
 
-if (localStorage.getItem("username").toLowerCase() == "alex") {
+if ((localStorage.getItem("username") || "").toLowerCase() == "alex") {
   routes = routes.filter((route) => {
     if (
       route.name === "Dashboard" ||
@@ -215,8 +241,8 @@ if (localStorage.getItem("username").toLowerCase() == "alex") {
 }
 
 if (
-  localStorage.getItem("username").toLowerCase() == "john" ||
-  localStorage.getItem("username").toLowerCase() == "lebo"
+  (localStorage.getItem("username") || "").toLowerCase() == "john" ||
+  (localStorage.getItem("username") || "").toLowerCase() == "lebo"
 ) {
   routes = routes.filter((route) => {
     if (
@@ -277,7 +303,7 @@ const allowedChecker = [
   "nadira",
 ];
 
-if (allowedChecker.includes(checker.toLowerCase())) {
+if (allowedChecker.includes((checker || "").toLowerCase())) {
   console.log("true checker");
   const newData = {
     type: "collapse",
@@ -388,7 +414,7 @@ const notallowedPayableUsers = [
 ];
 if (
   localStorage.getItem("username") == "ritik" &&
-  !notallowedPayableUsers.includes(payableRegularUsers.toLowerCase())
+  !notallowedPayableUsers.includes((payableRegularUsers || "").toLowerCase())
 ) {
   const newData = {
     type: "collapse",
@@ -417,7 +443,7 @@ const allowedpayableRegularMakers = ["aminah1", "hazik1", "aminah", "hazik"];
 if (
   localStorage.getItem("type") == "Anchor" &&
   localStorage.getItem("username") == "prem" &&
-  !allowedpayableRegularMakers.includes(payableRegularMakers.toLowerCase())
+  !allowedpayableRegularMakers.includes((payableRegularMakers || "").toLowerCase())
 ) {
   const newData = {
     type: "collapse",
@@ -439,5 +465,32 @@ if (
   routes.push(newData);
   routes.push(newData2);
 }
+
+routes.push(
+  {
+    type: "collapse",
+    name: "Invoice Management",
+    key: "Invoice Management",
+    icon: <Icon fontSize="small">receipt_long</Icon>,
+    route: "invoice_management",
+    component: <InvoiceManagement />,
+  },
+  {
+    type: "collapse",
+    name: "Approve Invoice",
+    key: "Approve Invoice",
+    icon: <Icon fontSize="small">approval</Icon>,
+    route: "approve_invoice",
+    component: <ApproveInvoice />,
+  },
+  {
+    type: "collapse",
+    name: "Invoice Status",
+    key: "Invoice Status",
+    icon: <Icon fontSize="small">fact_check</Icon>,
+    route: "invoice_status",
+    component: <InvoiceStatus />,
+  }
+);
 
 export default routes;
