@@ -253,5 +253,39 @@ describe("Phase 2: Deterministic Transaction State Management", () => {
       expect(res.valid).toBe(false);
       expect(res.validationErrors).toContain("Invoice Date contains an invalid calendar date.");
     });
+
+    test("supports spokeCode as vendor and programId as program in createNewTransaction and mergeRequestEntities", () => {
+      const txn = createNewTransaction({
+        spokeCode: "VEN0009339",
+        programId: "PROG-00000174-ID",
+        anchorCode: "BUY0003335",
+        invoiceNumber: "INVO001",
+        invoiceDate: "20/02/2026",
+        invoiceAmount: 10000,
+        discountAmount: 9000,
+      });
+      expect(txn.vendor.name).toBe("VEN0009339");
+      expect(txn.vendor.code).toBe("VEN0009339");
+      expect(txn.vendor.spokeCode).toBe("VEN0009339");
+      expect(txn.program.name).toBe("PROG-00000174-ID");
+      expect(txn.program.id).toBe("PROG-00000174-ID");
+      expect(txn.anchor.code).toBe("BUY0003335");
+
+      const val = validateTransactionData(txn);
+      expect(val.valid).toBe(true);
+      expect(val.missingFields).toHaveLength(0);
+
+      const merged = mergeRequestEntities(createNewTransaction(), {
+        spokeCode: "VEN0009339",
+        programId: "PROG-00000174-ID",
+        invoiceNumber: "INVO002",
+        invoiceDate: "20/02/2026",
+        invoiceAmount: 20000,
+        discountAmount: 19000,
+      });
+      expect(merged.vendor.name).toBe("VEN0009339");
+      expect(merged.program.name).toBe("PROG-00000174-ID");
+      expect(validateTransactionData(merged).valid).toBe(true);
+    });
   });
 });

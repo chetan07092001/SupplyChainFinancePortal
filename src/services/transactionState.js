@@ -218,23 +218,42 @@ export function generateTransactionId(prefix = "TXN") {
  */
 export function createNewTransaction(overrides = {}) {
   const requestId = overrides.requestId || overrides.id || generateTransactionId("REQ");
+  const vendorName =
+    overrides.vendorName ||
+    overrides.spokeCode ||
+    overrides.vendorCode ||
+    null;
+  const vendorCode =
+    overrides.vendorCode ||
+    overrides.spokeCode ||
+    overrides.vendorName ||
+    null;
+  const spokeCode =
+    overrides.spokeCode ||
+    overrides.vendorCode ||
+    overrides.vendorName ||
+    null;
+  const programName = overrides.programName || overrides.programId || null;
+  const programId = overrides.programId || overrides.programName || null;
+
   return {
     id: requestId,
     requestId,
     batchId: overrides.batchId || null,
     status: TRANSACTION_STATES.COLLECTING_DETAILS,
     vendor: {
-      name: overrides.vendorName || null,
-      code: overrides.vendorCode || null,
+      name: vendorName,
+      code: vendorCode,
+      spokeCode: spokeCode,
       accountNumber: overrides.accountNumber || null,
       email: overrides.email || null,
-      provenance: overrides.vendorName ? FIELD_PROVENANCE.USER_PROVIDED : null,
+      provenance: vendorName ? FIELD_PROVENANCE.USER_PROVIDED : null,
     },
     program: {
-      id: overrides.programId || null,
-      name: overrides.programName || null,
-      availablePrograms: [],
-      provenance: overrides.programId ? FIELD_PROVENANCE.USER_PROVIDED : null,
+      id: programId,
+      name: programName,
+      availablePrograms: overrides.availablePrograms || [],
+      provenance: programId || programName ? FIELD_PROVENANCE.USER_PROVIDED : null,
     },
     anchor: {
       code: overrides.anchorCode || null,
@@ -314,8 +333,9 @@ export function validateTransactionData(transaction) {
   const vendor = transaction.vendor || {};
   const program = transaction.program || {};
 
-  // 1. Vendor Name
-  if (!vendor.name || typeof vendor.name !== "string" || !vendor.name.trim()) {
+  // 1. Vendor Name / Spoke Code
+  const vName = vendor.name || vendor.code || vendor.spokeCode;
+  if (!vName || typeof vName !== "string" || !vName.trim()) {
     missingFields.push("Vendor Name");
   }
 
@@ -405,29 +425,49 @@ export function mergeRequestEntities(existingRequest, extractedEntities = {}, so
     updatedAt: new Date().toISOString(),
   };
 
-  // Vendor merge
-  if (extractedEntities.vendorName !== undefined && extractedEntities.vendorName !== null) {
+  // Vendor merge (handles vendorName, spokeCode, vendorCode)
+  const incomingVendor =
+    extractedEntities.vendorName ?? extractedEntities.spokeCode ?? extractedEntities.vendorCode;
+  if (incomingVendor !== undefined && incomingVendor !== null) {
     // Only overwrite if not backend_verified, or if explicit user correction
     if (
       updated.vendor.provenance !== FIELD_PROVENANCE.BACKEND_VERIFIED ||
       sourceMetadata.isExplicitCorrection
     ) {
-      updated.vendor.name = String(extractedEntities.vendorName).trim();
+      const vStr = String(incomingVendor).trim();
+      updated.vendor.name = vStr;
+      updated.vendor.code = String(
+        extractedEntities.vendorCode || extractedEntities.spokeCode || vStr
+      ).trim();
+      updated.vendor.spokeCode = String(extractedEntities.spokeCode || updated.vendor.code).trim();
       updated.vendor.provenance = provenanceType;
     }
   }
 
-  // Program merge
-  if (extractedEntities.programName !== undefined && extractedEntities.programName !== null) {
+  // Program merge (handles programName, programId, program)
+  const incomingProgram =
+    extractedEntities.programName ?? extractedEntities.programId ?? extractedEntities.program;
+  if (incomingProgram !== undefined && incomingProgram !== null) {
     if (
       updated.program.provenance !== FIELD_PROVENANCE.BACKEND_VERIFIED ||
       sourceMetadata.isExplicitCorrection
     ) {
-      const progStr = String(extractedEntities.programName).trim();
+      const progStr = String(incomingProgram).trim();
       updated.program.name = progStr;
       updated.program.id = progStr;
       updated.program.provenance = provenanceType;
     }
+  }
+
+  // Anchor merge
+  if (extractedEntities.anchorCode !== undefined && extractedEntities.anchorCode !== null) {
+    updated.anchor.code = String(extractedEntities.anchorCode).trim();
+  }
+  if (extractedEntities.accountNumber !== undefined && extractedEntities.accountNumber !== null) {
+    updated.vendor.accountNumber = String(extractedEntities.accountNumber).trim();
+  }
+  if (extractedEntities.email !== undefined && extractedEntities.email !== null) {
+    updated.vendor.email = String(extractedEntities.email).trim();
   }
 
   // Invoice Number

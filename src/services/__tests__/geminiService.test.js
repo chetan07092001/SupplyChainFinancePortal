@@ -102,4 +102,47 @@ describe("Phase 4: Gemini Service Refactoring & Extraction", () => {
     expect(result.entities.invoiceAmount).toBe(320000);
     expect(result.entities.discountAmount).toBe(0);
   });
+
+  test("extractInvoiceDocument maps spokeCode to vendorName and programId to programName", async () => {
+    const mockGenerateContent = jest.fn().mockResolvedValueOnce({
+      text: JSON.stringify({
+        invoices: [
+          {
+            invoiceNumber: "INVO001",
+            invoiceDate: "20/02/2026",
+            invoiceAmount: 10000,
+            discountAmount: 9000,
+            spokeCode: "VEN0009339",
+            anchorCode: "BUY0003335",
+            accountNumber: "917010000000780",
+            email: "vashisht.rudra@gmail.com",
+            programId: "PROG-00000174-ID",
+            currency: "INR",
+          },
+        ],
+        documentConfidence: "high",
+      }),
+    });
+
+    GoogleGenAI.mockImplementationOnce(() => ({
+      models: { generateContent: mockGenerateContent },
+    }));
+
+    const result = await extractInvoiceDocument({
+      data: "base64data",
+      mimeType: "application/pdf",
+      fileName: "Agent Invoice for Upload.pdf",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.invoices).toHaveLength(1);
+    expect(result.invoices[0].vendorName).toBe("VEN0009339");
+    expect(result.invoices[0].spokeCode).toBe("VEN0009339");
+    expect(result.invoices[0].programName).toBe("PROG-00000174-ID");
+    expect(result.invoices[0].programId).toBe("PROG-00000174-ID");
+    expect(result.invoices[0].anchorCode).toBe("BUY0003335");
+    expect(result.invoices[0].invoiceNumber).toBe("INVO001");
+    expect(result.invoices[0].invoiceAmount).toBe(10000);
+    expect(result.invoices[0].discountAmount).toBe(9000);
+  });
 });

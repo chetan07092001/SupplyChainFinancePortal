@@ -272,6 +272,32 @@ export function AskAIChatbot({
     setMessages((prev) => [...prev, userMessage]);
 
     try {
+      // 0. FAST-PATH: User affirms "proceed", "yes", or "confirm" when active loan request is ready
+      const isAffirmativeProceed =
+        !currentFile &&
+        !audioData &&
+        /^\s*(proceed|yes|confirm|proceed with loan|submit|go ahead|yes proceed)\s*$/i.test(
+          displayContent.trim()
+        );
+
+      if (isAffirmativeProceed && activeRequestId && transactions[activeRequestId]) {
+        const activeTxn = transactions[activeRequestId];
+        const batchTxns = activeTxn.batchId
+          ? Object.values(transactions).filter((t) => t.batchId === activeTxn.batchId)
+          : [activeTxn];
+        const allBatchValid = batchTxns.every((t) => validateTransactionData(t).valid);
+
+        if (
+          allBatchValid &&
+          (activeTxn.status === TRANSACTION_STATES.READY_FOR_REVIEW ||
+            activeTxn.status === TRANSACTION_STATES.AWAITING_CONFIRMATION ||
+            activeTxn.status === TRANSACTION_STATES.COLLECTING_DETAILS)
+        ) {
+          await handleConfirmLoan(activeRequestId);
+          return;
+        }
+      }
+
       // 1. FAST-PATH: Direct Program Inquiry or Active Program Follow-Up
       // Bypasses Gemini entirely: 0 tokens consumed, response in <100ms!
       const isDirectProgQuery =
@@ -433,11 +459,23 @@ export function AskAIChatbot({
         const batchId = generateTransactionId("BATCH");
         const newTxns = { ...transactions };
         const createdIds = [];
+        let allValid = true;
 
         for (const rawInv of result.invoices) {
+          const effectiveVendor =
+            rawInv.vendorName || rawInv.spokeCode || rawInv.vendorCode || null;
+          const effectiveProgram = rawInv.programName || rawInv.programId || null;
+
           const txn = createNewTransaction({
             batchId,
-            vendorName: rawInv.vendorName || null,
+            vendorName: effectiveVendor,
+            vendorCode: rawInv.vendorCode || rawInv.spokeCode || effectiveVendor,
+            spokeCode: rawInv.spokeCode || rawInv.vendorCode || effectiveVendor,
+            programName: effectiveProgram,
+            programId: rawInv.programId || rawInv.programName || effectiveProgram,
+            anchorCode: rawInv.anchorCode || null,
+            accountNumber: rawInv.accountNumber || null,
+            email: rawInv.email || null,
             invoiceNumber: rawInv.invoiceNumber || null,
             invoiceDate: rawInv.invoiceDate || null,
             invoiceAmount: rawInv.invoiceAmount !== undefined ? rawInv.invoiceAmount : null,
@@ -445,10 +483,10 @@ export function AskAIChatbot({
             currency: rawInv.currency || "INR",
           });
 
-          // Fetch verified programs if vendor is detected
-          if (rawInv.vendorName) {
+          // Fetch verified programs if vendor is detected and program not already known
+          if (effectiveVendor && !effectiveProgram) {
             try {
-              const progRes = await getVendorPrograms({ vendorName: rawInv.vendorName });
+              const progRes = await getVendorPrograms({ vendorName: effectiveVendor });
               if (progRes.success) {
                 txn.program.availablePrograms = progRes.programs;
               }
@@ -466,6 +504,10 @@ export function AskAIChatbot({
             ? TRANSACTION_STATES.AWAITING_PROGRAM_SELECTION
             : TRANSACTION_STATES.COLLECTING_DETAILS;
 
+          if (!val.valid) {
+            allValid = false;
+          }
+
           newTxns[txn.requestId] = txn;
           createdIds.push(txn.requestId);
         }
@@ -473,17 +515,37 @@ export function AskAIChatbot({
         setTransactions(newTxns);
         setActiveRequestId(createdIds[0]);
 
+        const primaryTxn = newTxns[createdIds[0]];
+        const vLabel = primaryTxn?.vendor?.name || "Vendor";
+        const pLabel = primaryTxn?.program?.name || "";
+
+        let assistantContent = "";
+        let responseMessageType = "DOCUMENT_BATCH_EXTRACTED";
+
+        if (allValid) {
+          responseMessageType = "LOAN_REQUEST_CONFIRMATION";
+          assistantContent =
+            `📄 Extracted ${result.invoices.length} invoice(s) from document '${
+              currentFile?.name || "uploaded file"
+            }' for **${vLabel}**${pLabel ? ` under program **${pLabel}**` : ""}.\n\n` +
+            `All required data has been captured successfully. **Do you want to proceed?**`;
+        } else {
+          assistantContent =
+            `📄 Extracted ${result.invoices.length} invoice(s) from document '${
+              currentFile?.name || "uploaded file"
+            }'. Review the details below:`;
+        }
+
         const assistantMsg = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `📄 Extracted ${result.invoices.length} invoice(s) from document '${
-            currentFile?.name || "file"
-          }'. Review the details below:`,
+          content: assistantContent,
           timestamp: new Date(),
           data: {
-            type: "DOCUMENT_BATCH_EXTRACTED",
+            type: responseMessageType,
             batchId,
             requestIds: createdIds,
+            requestId: createdIds[0],
           },
         };
         setMessages((prev) => [...prev, assistantMsg]);
@@ -960,9 +1022,23 @@ export function AskAIChatbot({
           responseContent =
             `I have verified all ${count} extracted invoices for **${vName}** ` +
             `under program **${pName}** (Total Amount: ${cur} ${amtStr}). ` +
-            `They will be submitted together in a single work item case. ` +
-            `Please review the details below and click Confirm to initiate.`;
+            `They will be submitted together in a single work item case.\n\n` +
+            `**Do you want to proceed?**`;
+        } else {
+          responseContent =
+            `I have verified the invoice details for **${mergedTxn.vendor.name}** ` +
+            `under program **${mergedTxn.program.name}** (Amount: ${
+              mergedTxn.invoice.currency
+            } ${Number(mergedTxn.invoice.amount).toLocaleString("en-US")}).\n\n` +
+            `**Do you want to proceed?**`;
         }
+      } else if (responseType === "LOAN_REQUEST_CONFIRMATION") {
+        responseContent =
+          `I have verified the invoice details for **${mergedTxn.vendor.name}** ` +
+          `under program **${mergedTxn.program.name}** (Amount: ${
+            mergedTxn.invoice.currency
+          } ${Number(mergedTxn.invoice.amount).toLocaleString("en-US")}).\n\n` +
+          `**Do you want to proceed?**`;
       }
 
       logChatbot("RESPONSE", {
@@ -1323,12 +1399,17 @@ export function AskAIChatbot({
         >
           <div>
             <span style={{ color: "#94a3b8" }}>Vendor:</span>{" "}
-            <strong>{txn.vendor.name || "Missing"}</strong>
+            <strong>
+              {txn.vendor.name ||
+                txn.vendor.code ||
+                txn.vendor.spokeCode ||
+                "Missing"}
+            </strong>
           </div>
           <div>
             <span style={{ color: "#94a3b8" }}>Program:</span>{" "}
-            <strong style={{ color: txn.program.name ? "#047857" : "#dc2626" }}>
-              {txn.program.name || "Missing"}
+            <strong style={{ color: txn.program.name || txn.program.id ? "#047857" : "#dc2626" }}>
+              {txn.program.name || txn.program.id || "Missing"}
             </strong>
           </div>
           {isBatch ? (
@@ -1555,11 +1636,12 @@ export function AskAIChatbot({
           }}
         >
           <div>
-            <span style={{ color: "#94a3b8" }}>Vendor:</span> <strong>{txn.vendor.name}</strong>
+            <span style={{ color: "#94a3b8" }}>Vendor:</span>{" "}
+            <strong>{txn.vendor.name || txn.vendor.code || txn.vendor.spokeCode}</strong>
           </div>
           <div>
             <span style={{ color: "#94a3b8" }}>Program:</span>{" "}
-            <strong style={{ color: "#047857" }}>{txn.program.name}</strong>
+            <strong style={{ color: "#047857" }}>{txn.program.name || txn.program.id}</strong>
           </div>
           {isBatch ? (
             <>

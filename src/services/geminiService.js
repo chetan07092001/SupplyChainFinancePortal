@@ -300,22 +300,48 @@ export async function extractInvoiceDocument(fileData) {
     };
   }
 
-  const systemInstruction = `You are a precision financial document OCR model for a Supply Chain Finance platform.
+  const systemInstruction = `You are a precision financial document OCR model for a Supply Chain Finance (SCF) platform.
 Extract ONLY the invoice details that are physically printed on the document.
 DO NOT invent or extrapolate fields.
 DO NOT use template examples or placeholder identifiers.
-If a field (e.g. discount amount, tax, program) is NOT explicitly mentioned on the invoice, set its value to null.
-If multiple distinct invoices are printed on the document, return all of them in the array.
+If a field is NOT explicitly mentioned on the invoice, set its value to null.
+If multiple distinct invoices or columns are printed on the document, return all of them in the "invoices" array.
+
+CRITICAL SUPPLY CHAIN FINANCE (SCF) FIELD MAPPING INSTRUCTIONS:
+1. VENDOR NAME = SPOKE CODE / SPOKE / VENDOR CODE:
+   - In SCF (Hub-and-Spoke model), the Vendor / Supplier is frequently labeled as "Spoke Code", "Spoke", "Vendor Code", "Vendor", or "Supplier" (e.g. VEN0009339).
+   - You MUST treat "Spoke Code" or "Vendor Code" printed on the document as "vendorName" (and also populate "spokeCode" and "vendorCode").
+2. PROGRAM NAME = PROGRAM ID / PROGRAM:
+   - The financing program is frequently labeled as "Program ID", "Program", "Prog ID", or "Program Name" (e.g. PROG-00000174-ID).
+   - You MUST treat "Program ID" printed on the document as "programName" (and also populate "programId").
+3. ANCHOR / BUYER:
+   - In SCF, the buyer is often labeled as "Anchor Code", "Anchor", or "Buyer Code" (e.g. BUY0003335). Extract it as "anchorCode".
+4. ACCOUNT & CONTACT:
+   - If "Account No" or "Account Number" is printed, extract it as "accountNumber".
+   - If "Email ID" or "Email" is printed, extract it as "email".
+5. FINANCIAL DETAILS:
+   - "invoiceNumber": exact invoice number/reference string (e.g. INVO001).
+   - "invoiceDate": format strictly as DD/MM/YYYY (e.g. 20/02/2026). Convert any other scanned date format to DD/MM/YYYY.
+   - "invoiceAmount": exact numeric amount without commas or currency symbols (e.g. 10000).
+   - "discountAmount": exact numeric discount / financed amount (e.g. 9000).
+   - "currency": currency code (e.g. INR, USD).
 
 OUTPUT SCHEMA (JSON ONLY):
 {
   "invoices": [
     {
-      "invoiceNumber": "<exact string on document>",
-      "invoiceDate": "<DD/MM/YYYY format only, e.g. 16/10/2026. Convert any other scanned date format to DD/MM/YYYY>",
+      "invoiceNumber": "<exact string on document, e.g. INVO001>",
+      "invoiceDate": "<DD/MM/YYYY format only, e.g. 20/02/2026>",
       "invoiceAmount": <exact numeric amount>,
-      "discountAmount": <exact numeric discount or null if not stated>,
-      "vendorName": "<vendor/supplier name or null>",
+      "discountAmount": <exact numeric discount/financed amount or null if not stated>,
+      "vendorName": "<exact Spoke Code (e.g. VEN0009339), Vendor Name, or Vendor Code printed on document, or null>",
+      "spokeCode": "<exact Spoke Code printed on document, e.g. VEN0009339, or null>",
+      "vendorCode": "<exact Vendor Code or Spoke Code printed on document or null>",
+      "programName": "<exact Program ID (e.g. PROG-00000174-ID) or Program Name printed on document, or null>",
+      "programId": "<exact Program ID printed on document, e.g. PROG-00000174-ID, or null>",
+      "anchorCode": "<exact Anchor Code or Buyer Code printed on document, e.g. BUY0003335, or null>",
+      "accountNumber": "<exact account number or null>",
+      "email": "<exact email ID or null>",
       "currency": "<e.g. INR, USD or null>"
     }
   ],
@@ -369,9 +395,28 @@ OUTPUT SCHEMA (JSON ONLY):
       };
     }
 
+    // Normalize and cross-map Spoke Code -> Vendor Name & Program ID -> Program Name
+    const mappedInvoices = rawInvoices.map((inv) => {
+      const vendorName = inv.vendorName || inv.spokeCode || inv.vendorCode || null;
+      const spokeCode = inv.spokeCode || inv.vendorCode || vendorName || null;
+      const programName = inv.programName || inv.programId || null;
+      const programId = inv.programId || inv.programName || null;
+      const invoiceDate = inv.invoiceDate ? normalizeDateToDDMMYYYY(inv.invoiceDate) : null;
+
+      return {
+        ...inv,
+        vendorName,
+        spokeCode,
+        vendorCode: spokeCode,
+        programName,
+        programId,
+        invoiceDate,
+      };
+    });
+
     return {
       success: true,
-      invoices: rawInvoices,
+      invoices: mappedInvoices,
       documentConfidence: parsed.documentConfidence || "medium",
       notes: parsed.notes || "",
     };
@@ -419,9 +464,8 @@ export async function processNexusIntent(
     return {
       type: "DOCUMENT_EXTRACTED",
       invoices: docResult.invoices,
-      message: `Extracted ${docResult.invoices.length} invoice(s) from document '${
-        fileData.fileName || "uploaded file"
-      }'.`,
+      message: `Extracted ${docResult.invoices.length} invoice(s) from document '${fileData.fileName || "uploaded file"
+        }'.`,
     };
   }
 
@@ -578,9 +622,8 @@ OUTPUT JSON FORMAT:
 
     return {
       type: "CHAT",
-      message: `I encountered an issue processing your request: ${
-        error.message || "Please try again."
-      }`,
+      message: `I encountered an issue processing your request: ${error.message || "Please try again."
+        }`,
       entities: {},
     };
   }
