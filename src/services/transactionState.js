@@ -218,21 +218,9 @@ export function generateTransactionId(prefix = "TXN") {
  */
 export function createNewTransaction(overrides = {}) {
   const requestId = overrides.requestId || overrides.id || generateTransactionId("REQ");
-  const vendorName =
-    overrides.vendorName ||
-    overrides.spokeCode ||
-    overrides.vendorCode ||
-    null;
-  const vendorCode =
-    overrides.vendorCode ||
-    overrides.spokeCode ||
-    overrides.vendorName ||
-    null;
-  const spokeCode =
-    overrides.spokeCode ||
-    overrides.vendorCode ||
-    overrides.vendorName ||
-    null;
+  const vendorName = overrides.vendorName || overrides.spokeCode || overrides.vendorCode || null;
+  const vendorCode = overrides.vendorCode || overrides.spokeCode || overrides.vendorName || null;
+  const spokeCode = overrides.spokeCode || overrides.vendorCode || overrides.vendorName || null;
   const programName = overrides.programName || overrides.programId || null;
   const programId = overrides.programId || overrides.programName || null;
 

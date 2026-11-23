@@ -530,10 +530,9 @@ export function AskAIChatbot({
             }' for **${vLabel}**${pLabel ? ` under program **${pLabel}**` : ""}.\n\n` +
             `All required data has been captured successfully. **Do you want to proceed?**`;
         } else {
-          assistantContent =
-            `📄 Extracted ${result.invoices.length} invoice(s) from document '${
-              currentFile?.name || "uploaded file"
-            }'. Review the details below:`;
+          assistantContent = `📄 Extracted ${result.invoices.length} invoice(s) from document '${
+            currentFile?.name || "uploaded file"
+          }'. Review the details below:`;
         }
 
         const assistantMsg = {
@@ -1400,10 +1399,7 @@ export function AskAIChatbot({
           <div>
             <span style={{ color: "#94a3b8" }}>Vendor:</span>{" "}
             <strong>
-              {txn.vendor.name ||
-                txn.vendor.code ||
-                txn.vendor.spokeCode ||
-                "Missing"}
+              {txn.vendor.name || txn.vendor.code || txn.vendor.spokeCode || "Missing"}
             </strong>
           </div>
           <div>
